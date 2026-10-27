@@ -680,20 +680,17 @@ class FilesystemBackend(BackendProtocol):
         if glob_refusal is not None:
             return GrepResult(error=glob_refusal, matches=[])
 
+        search_path = path or "."
         # Resolve base path
         try:
-            base_full = self._resolve_path(path or ".")
-        except ValueError:
-            return GrepResult(matches=[])
-        except (OSError, RuntimeError) as e:
-            search_path = path or "."
+            base_full = self._resolve_path(search_path)
+        except (OSError, RuntimeError, ValueError) as e:
             return GrepResult(error=f"Error searching path '{search_path}': {e}", matches=[])
 
         try:
             if not base_full.exists():
                 return GrepResult(matches=[])
         except OSError as e:
-            search_path = path or "."
             return GrepResult(error=f"Error searching path '{search_path}': {e}", matches=[])
 
         # Try ripgrep first (with -F flag for literal search)
