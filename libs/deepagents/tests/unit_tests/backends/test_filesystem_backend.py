@@ -17,7 +17,16 @@ from langchain_core.messages import ToolMessage
 
 from deepagents.backends import filesystem as fs_module
 from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.backends.protocol import DeleteResult, EditResult, GrepMatch, ReadResult, WriteResult
+from deepagents.backends.protocol import (
+    DeleteResult,
+    EditResult,
+    GlobResult,
+    GrepMatch,
+    GrepResult,
+    LsResult,
+    ReadResult,
+    WriteResult,
+)
 from deepagents.backends.utils import format_grep_matches
 from deepagents.middleware.filesystem import GLOB_TIMEOUT, FilesystemMiddleware
 
@@ -188,8 +197,8 @@ def test_filesystem_backend_virtual_mode(tmp_path: Path, monkeypatch: pytest.Mon
     assert result_bracket.matches is not None  # Should not error, returns empty list or matches
 
     # path traversal blocked
-    with pytest.raises(ValueError, match="traversal"):
-        be.read("/../a.txt")
+    msg3 = be.read("/../a.txt")
+    assert isinstance(msg3, ReadResult) and msg3.error is not None
 
 
 def test_filesystem_backend_ls_nested_directories(tmp_path: Path):
@@ -2773,3 +2782,62 @@ class TestRealPath:
         real_path = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=False)._real_path
         expected = Path(os.path.realpath(tmp_path / "secrets" / "key.txt"))
         assert real_path(str(tmp_path / "link" / "key.txt")) == "/" + expected.relative_to(expected.anchor).as_posix()
+
+
+@pytest.mark.parametrize(
+    ("key", "expected", "match"),
+    [
+        pytest.param("foo..bar.txt", "foo..bar.txt", None, id="basename-double-dots-allowed"),
+        pytest.param("foo../bar.txt", str(Path("foo..") / "bar.txt"), None, id="double-dots-directory-component-allowed"),
+        pytest.param(r"sub\notes.txt", str(Path("sub") / "notes.txt"), None, id="windows-separators-normalized"),
+        pytest.param(r"sub\..\secret.txt", None, "traversal", id="windows-separator-traversal-rejected"),
+        pytest.param("~/secret.txt", None, "traversal", id="user-home-traversal-rejected"),
+        pytest.param("C:/secret.txt", None, "Windows", id="windows-drive-path-rejected")
+    ]
+)
+def test_filesystem_backend_virtual_mode_uses_virtual_path_validation(
+    tmp_path: Path,
+    key: str,
+    expected: str | None,
+    match: str | None
+) -> None:
+    be = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+
+    if match is None:
+        assert be._resolve_path(key) == tmp_path / expected
+    else:
+        with pytest.raises(ValueError, match=match):
+            be._resolve_path(key)
+
+
+@pytest.mark.parametrize(
+    ("method_name", "args", "kwargs", "expected_type"),
+    [
+        pytest.param("read", ("/../a.txt",), {}, ReadResult, id="read"),
+        pytest.param("write", ("/../a.txt", "content"), {}, WriteResult, id="write"),
+        pytest.param("edit", ("/../a.txt", "old", "new"), {}, EditResult, id="edit"),
+        pytest.param("delete", ("/../a.txt",), {}, DeleteResult, id="delete"),
+        pytest.param("ls", ("/../",), {}, LsResult, id="ls"),
+        pytest.param("glob", ("*",), {"path": "/../"}, GlobResult, id="glob"),
+        pytest.param("grep", ("dummy",), {"path": "/../"}, GrepResult, id="grep"),
+    ]
+)
+def test_file_operations_return_errors_for_invalid_virtual_paths(
+    tmp_path: Path,
+    method_name: str,
+    args: tuple,
+    kwargs: dict,
+    expected_type: type
+) -> None:
+    """
+    Ensure invalid virtual paths return structured errors instead of raising ValueError.
+
+    Each operation resolves paths independently, so verify that every affected
+    method reports resolution failures through its result.
+    """
+    be = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+
+    result = getattr(be, method_name)(*args, **kwargs)
+
+    assert isinstance(result, expected_type)
+    assert result.error is not None

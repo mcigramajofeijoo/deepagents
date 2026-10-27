@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from deepagents.backends.local_shell import LocalShellBackend
-from deepagents.backends.protocol import ExecuteResponse
+from deepagents.backends.protocol import ExecuteResponse, ReadResult
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="LocalShellBackend requires sh, not available on Windows")
 
@@ -282,8 +282,9 @@ def test_local_shell_backend_virtual_mode_restrictions() -> None:
         backend = LocalShellBackend(root_dir=tmpdir, virtual_mode=True)
 
         # Filesystem operations should be restricted
-        with pytest.raises(ValueError, match="Path traversal not allowed"):
-            backend.read("/../etc/passwd")
+        msg = backend.read("/../etc/passwd")
+        assert isinstance(msg, ReadResult)
+        assert msg.error is not None
 
         # But shell commands are NOT restricted (by design)
         result = backend.execute("cat /etc/passwd")
