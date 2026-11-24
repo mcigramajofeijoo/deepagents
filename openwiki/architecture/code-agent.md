@@ -1,158 +1,149 @@
 ---
 type: architecture
 title: Deep Agents Code Architecture
-description: Product architecture for dcode, its terminal client and agent-server runtime, and the CLI-owned version and resilient self-update subsystem.
-tags: [dcode, deepagents, cli, agent-runtime, updates]
+description: dcode separates client interaction from the server-hosted Deep Agents graph. This page describes execution surfaces, Hooks v2 ownership and interrupt resumption, terminal program-status reporting, and server-authoritative model selection.
+tags: [dcode, deepagents, agent-server, hooks, terminal-ui, headless, acp, program-status, model-catalog]
 verified:
   - by: openwiki/0.4.2
-    at: 2026-10-22T08:05:54.651Z
+    at: 2026-11-18T08:03:59.609Z
 sources:
-  - id: openwiki-source-6f5b1b7a043ee1d414708793
-    resource: repo://libs/code/ARCHITECTURE.md
-  - id: openwiki-source-1728494bdd59604ce9b5f65b
-    resource: repo://libs/code/deepagents_code/_server_config.py
-  - id: openwiki-source-ac769408e1d61a20b9874382
-    resource: repo://libs/code/deepagents_code/_version.py
+  - id: openwiki-source-4d4186e9d62fb4abe495cdd0
+    resource: repo://libs/code/deepagents_code/acp.py
+  - id: openwiki-source-05106e66a949150d557266a2
+    resource: repo://libs/code/deepagents_code/agent.py
   - id: openwiki-source-fdf5afeb1dd1d11652374e88
     resource: repo://libs/code/deepagents_code/app.py
-  - id: openwiki-source-b9ef532d79a0667acf40e58b
-    resource: repo://libs/code/deepagents_code/client/launch/server_manager.py
-  - id: openwiki-source-074ce96a8baea27a6c43328b
-    resource: repo://libs/code/deepagents_code/client/launch/server.py
   - id: openwiki-source-ecf20e7a2684ba0d2ae7d701
     resource: repo://libs/code/deepagents_code/client/non_interactive.py
+  - id: openwiki-source-b7d66cbdbe9dae9f133a7c5e
+    resource: repo://libs/code/deepagents_code/client/remote_client.py
+  - id: openwiki-source-a56bc888b2c3520dd1147a79
+    resource: repo://libs/code/deepagents_code/hooks/client.py
+  - id: openwiki-source-15ae143d10ab05659f6fac9c
+    resource: repo://libs/code/deepagents_code/hooks/interrupt.py
+  - id: openwiki-source-aa3e9529d99dae1ecc1669fa
+    resource: repo://libs/code/deepagents_code/hooks/loading.py
+  - id: openwiki-source-86b89dcd6cd128907bd5792c
+    resource: repo://libs/code/deepagents_code/hooks/runtime.py
+  - id: openwiki-source-95960a358c0efd2540b626cf
+    resource: repo://libs/code/deepagents_code/hooks/server_middleware.py
   - id: openwiki-source-2e03fee957625ca21a1c21af
     resource: repo://libs/code/deepagents_code/main.py
+  - id: openwiki-source-7e241f30f5c7753642ea34d5
+    resource: repo://libs/code/deepagents_code/model_api.py
+  - id: openwiki-source-5afb93f98c34330c27609db2
+    resource: repo://libs/code/deepagents_code/model_catalog.py
+  - id: openwiki-source-ece74ecc87a2bc395b3ce368
+    resource: repo://libs/code/deepagents_code/model_metadata.py
   - id: openwiki-source-ea1089f0d7536fbc96c64866
     resource: repo://libs/code/deepagents_code/offload_api.py
-  - id: openwiki-source-a9eb680bb6bdae179f52a3ac
-    resource: repo://libs/code/deepagents_code/server_graph.py
-  - id: openwiki-source-2c41bc0b19795204a48854ee
-    resource: repo://libs/code/deepagents_code/tui/widgets/status.py
-  - id: openwiki-source-116a1f598e2b0900a09761fc
-    resource: repo://libs/code/deepagents_code/update_check.py
-  - id: openwiki-source-7ba50bd13eb62341a2061ef9
-    resource: repo://libs/code/pyproject.toml
-  - id: openwiki-source-103d356d5a4b15ce2fd743f9
-    resource: repo://libs/code/tests/unit_tests/test_main.py
-  - id: openwiki-source-9df15351ca01df061757cb11
-    resource: repo://libs/code/tests/unit_tests/test_update_check.py
-generated: { by: "openwiki/0.4.2", at: "2026-10-22T08:05:54.651Z" }
+  - id: openwiki-source-e910f60434eab1ae29c9c630
+    resource: repo://libs/code/deepagents_code/program_status.py
+  - id: openwiki-source-e9a7ab29b270179f4eea7107
+    resource: repo://libs/code/deepagents_code/tui/widgets/model_selector.py
+  - id: openwiki-source-49979ea2511a33d679dbbf04
+    resource: repo://libs/code/tests/unit_tests/hooks/test_server_lifecycle.py
+  - id: openwiki-source-9e2836fc0f978f6fd8407320
+    resource: repo://libs/code/tests/unit_tests/test_app_program_status.py
+  - id: openwiki-source-e012c5898b6bc6cb1317467d
+    resource: repo://libs/code/tests/unit_tests/test_model_catalog.py
+  - id: openwiki-source-669a6d1361755f2deb4515d2
+    resource: repo://libs/code/tests/unit_tests/test_model_metadata.py
+generated: { by: "openwiki/0.4.2", at: "2026-11-18T08:03:59.609Z" }
 ---
 
 # Deep Agents Code Architecture
 
-`deepagents-code` (`dcode`) is a prebuilt terminal coding agent and reference implementation that packages the reusable `deepagents` SDK harness with a terminal experience, persistence, tools, skills, approval controls, and optional sandboxed execution. The SDK supplies reusable agent-building primitives; dcode owns the end-user CLI, terminal UX, server launch, workspace policy, and distribution update behavior.
+`deepagents-code` (`dcode`) is a terminal coding agent around a Deep Agents/LangGraph runtime. The important boundary is not simply local versus remote code: the **client** owns interaction, hook configuration and execution, while the **server graph** owns agent lifecycle positions, tools, checkpoints, and the point at which a decision must affect execution. A client communicates its frozen hook configuration as context; the server uses that context only to decide which lifecycle boundaries to interrupt.
 
-## Runtime boundary
+## Execution surfaces and ownership
 
-Dcode deliberately separates the terminal client from the agent server, which run as separate processes. The client owns input, interactive rendering or headless console output, and approval collection. The server owns the compiled coding-agent graph, model, tools, MCP connections, skills, backend, and graph state. This keeps presentation work separate from graph construction and execution policy.
+| Surface | Process and presentation | Agent execution and interaction |
+|---|---|---|
+| Interactive CLI | Textual `DeepAgentsApp` and a loopback agent server | The app presents stream events, approval/question UI, hook notices, and status. The server constructs and runs the graph. |
+| Headless CLI (`-n`) | One console-oriented client process plus server session | `run_non_interactive()` streams one task, fulfills server-owned hook interrupts, and exits with an operational exit code. |
+| ACP | In-process stdio ACP server | ACP builds a graph per ACP session and wraps it with `_AutoGraph` to persist trusted Auto-mode control state and inject prompt metadata. |
+
+All surfaces use the graph middleware assembled by `create_cli_agent()`. The main graph receives `ServerHooksMiddleware` after approval middleware, so `PreToolUse` is evaluated before approval routing. The same middleware is added to subagents, but with `emit_stop=False`: subagent tools still get pre/post hooks while only the parent `task` boundary emits the main-agent `Stop` event. MCP timeout middleware is inside the hook wrapper, allowing `PostToolUseFailure` to observe timeouts as failed results.
+
+## Hooks v2: configuration is client-owned, lifecycle position is server-owned
+
+A `HooksRuntime` is created for one client session. It freezes a validated `HooksSnapshot`, a transcript store and engine, resolved workspace trust, a presenter, and a fulfillment ledger. It materializes transcript files only on the client before executing matching command handlers; the graph never receives client-local hook configuration or transcript paths.
+
+Configuration is merged in precedence/reduction order: trusted project `.deepagents/hooks.json`, user `~/.deepagents/hooks.json`, then enabled-plugin documents. Project configuration is excluded unless the workspace is trusted. Every source is validated and incorporated into a canonical snapshot hash; enabled server events and that `snapshot_id` are projected into per-run graph context. Moving to a new working directory or reloading reconstructs the runtime and re-resolves trust, so a grant for one project does not travel to another.
+
+The event capability table divides work deliberately:
+
+- **Client-owned events**—such as `SessionStart`, `UserPromptSubmit`, `SessionEnd`, `PermissionRequest`, and `Notification`—are invoked by the client lifecycle coordinator and can add context, stop client processing, make permission decisions, or present notices.
+- **Server-owned events**—`PreCompact`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SubagentStart`, and `SubagentStop`—are emitted at graph-safe lifecycle boundaries by `ServerHooksMiddleware`. They are enabled only when the client supplied both a snapshot ID and the corresponding event name, avoiding an interrupt round trip for unconfigured events.
+
+Project hooks can execute commands, so headless and CI runs do **not** inherit an interactive persisted grant. They load project hooks only with `--trust-project-hooks`; interactive startup may prompt and remember a project grant.
 
 ```mermaid
 sequenceDiagram
-    participant CLI as dcode CLI
-    participant Client as Terminal client
-    participant Server as Agent server
-    participant Store as SQLite checkpointer
-    CLI->>Client: choose interactive or headless run
-    Client->>Server: start or bind workspace and thread
-    Server->>Store: checkpoint graph state
-    Client->>Server: submit input or resume interrupt
-    Server-->>Client: stream events and state
-    Client-->>CLI: render output or request approval
+    participant Client as dcode client
+    participant Runtime as HooksRuntime
+    participant Graph as server graph
+    participant Hook as command handler
+    Client->>Runtime: freeze snapshot and server event names
+    Client->>Graph: stream with snapshot context
+    Graph->>Graph: reach enabled lifecycle boundary
+    Graph-->>Client: hook invocation interrupt
+    Client->>Runtime: validate and fulfill request
+    Runtime->>Hook: execute projected invocation
+    Hook-->>Runtime: handler output
+    Runtime-->>Client: reduced decision
+    Client->>Graph: matching resume value
+    Graph->>Graph: validate response and continue
 ```
 
-*Both modes use the server-side dcode runtime; only the presentation and approval boundary differs.*
+*Server middleware chooses the lifecycle boundary; the client executes handlers and resumes the paused graph with a typed decision.*
 
-### Process launch and configuration handoff
+### Interrupt and resume invariants
 
-The distribution publishes both `dcode` and `deepagents-code` for the same `cli_main` entrypoint. The launcher creates the server environment and returns a remote agent to the client. `ServerConfig` is the process-boundary schema: the launcher serializes its mapping to `DEEPAGENTS_CODE_SERVER_*`, and the server reconstructs it with `from_env`. Relative paths are normalized before serialization because the server has a different working directory.
+The interrupt wire envelope has a fixed `hook_invocation` discriminator and a validated versioned request. The server derives a deterministic invocation ID from the thread, hook snapshot, prompt, event, and logical event identity. The client checks that the request snapshot matches its runtime, then deduplicates fulfillment by `(snapshot_id, invocation_id)`: concurrent or repeated delivery shares one handler execution and cached response. On resume, the server verifies both invocation and snapshot ID before accepting the decision.
 
-The server, rather than the client, authorizes project-scoped execution. It rejects client-claimed project fields, verifies the client-claimable session-policy fingerprint, resolves policy for the canonical directory, and persists the server-authoritative workspace payload with the thread binding. Moving to a different workspace fails closed: launch-project MCP configuration, sandbox setup, and extension paths are dropped, then extension trust is re-read for the target project.
+The session gate is checkpointed at the start of an independent turn. On every resume the server compares the current `hooks_snapshot_id` and configured server-event set to that checkpointed gate; a changed context aborts rather than applying a decision under different hook policy. Malformed response *shape* is logged and reduced to a neutral decision, but an answer for a different invocation or snapshot is fatal.
 
-## Client startup surfaces
+This division also covers operations outside ordinary graph streaming. The server offload route returns one hook request at a time; the client fulfills it and sends an accumulated map of responses on the next request. The operation replays from the top and reuses answers keyed by deterministic ID, rather than re-running an already answered hook. This is essential for `PreCompact` and offload operations that cross normal graph interrupt boundaries.
 
-### Interactive terminal mode
+### What the middleware changes
 
-The normal path runs Textual. `DeepAgentsApp` composes the startup tip, goal-status panel, chat input, and docked status bar. Mount work is intentionally light; after first paint `_post_paint_init` constructs `TextualUIAdapter` and starts independent background initialization. The adapter is the UI boundary: it provides callbacks for rendering, status, approvals, questions, skills, subagent events, cache/accounting, and Auto-mode fallback instead of letting graph code manipulate Textual widgets.
+`PreToolUse` runs after a model proposes calls and before downstream approval. It can deny a call, explicitly allow it, request the existing HITL approval path, add context, or replace a local `execute` command. A denial becomes an error `ToolMessage` and prevents tool execution. Explicit allow/deny decisions are checkpointed per tool-call ID so normal approval does not prompt again; an undecided call continues through normal approval. Duplicate provider tool-call IDs never receive a trusted explicit-allow marker.
 
-The status bar keeps hook and agent messages in separate slots. A nonempty hook message temporarily takes display priority, configured hook text is rendered as plain `Content`, and one spinner serves connection and busy indications; unmount stops the spinner and cache timer.
+After a tool result is committed, the middleware stores a duration keyed by call ID in private checkpointed state. At the next `before_model` safe boundary it emits `PostToolUse` or `PostToolUseFailure`, may rewrite the committed `ToolMessage`, and removes the pending entry with a reducer tombstone. `task` calls additionally bracket the subagent with `SubagentStart` and `SubagentStop`; private hook state is stripped from subagent result merges so parallel subagents cannot corrupt parent hook bookkeeping.
 
-### Headless mode
+At a natural main-agent end, `Stop` may feed hook feedback back as a `HumanMessage` and jump to `model`. A continuation counter is checkpointed, passed to the event, and reset when the loop ends. Subagent graphs do not emit this parent `Stop`. Hook inputs are omitted from tracing by default.
 
-`dcode -n` dispatches a single task through `run_non_interactive`. It still starts a server session and streams the remote agent, but renders through a console loop rather than Textual. It passes `interactive=False` to the agent, which changes the generated prompt and enables the headless terminal-stall recovery wiring. Headless mode has no human approval conversation: with no shell allow-list, shell access is disabled; with a restrictive allow-list, shell commands are checked by middleware while other tools are auto-approved.
+## Normal, headless, and ACP implications
 
-## Server graph and lifecycle
+The Textual app owns a `HooksManager` and attaches its presenter to notices and a delayed footer-status slot. It applies the runtime's snapshot ID/event names to the graph context, projects rendered messages into the hook transcript, and fulfills hook interrupts received in agent streaming. Its offload and handoff calls pass the same fulfillment function, preserving hook behavior when compaction is server-operated.
 
-The server constructs a runtime by snapshotting workspace environment and credentials, configuring tracing, resolving the model and tools, optionally opening a sandbox, and compiling the CLI agent. `create_cli_agent` is the dcode-configured assembly boundary: it combines the SDK graph with dcode middleware, tool policy, memory, skills, subagents, project context, and persistence. Its public parameters make it usable by external callers, but dcode-specific policy and UX behavior should not be inferred as SDK behavior.
+Headless execution creates the same manager with a fixed one-turn identity, displays hook notices on the console and hook progress on the spinner, and applies the snapshot context before streaming. It collects hook interrupts separately from ordinary approval interrupts, executes them, and resumes the graph with both response maps. Permission hooks intentionally prevent automatic approval from bypassing the hook decision. It drains legacy fire-and-forget hooks during teardown, while Hooks v2 lifecycle execution is awaited at the applicable boundary.
 
-A runtime contains the compiled graph, composite backend, server-owned offload operation, and metadata. The graph factory caches runtime construction because MCP discovery, sandbox creation, and `atexit` ownership effects must happen once. Workspace runtimes are keyed by workspace identity and runtime fingerprint: a runtime-only change can rebuild an executable runtime without discarding a durable thread binding.
+ACP's `_AutoGraph` is a distinct in-process adapter. For every streamed ACP request it persists `ApprovalMode.AUTO` under the session's key, adds trusted prompt metadata to the final human message when present, and supplies an Auto `CLIContextSchema`. It does not create a Textual hook runtime or a terminal status reporter; integrations that require Hooks v2 must provide the corresponding hook context and fulfillment behavior at their own graph boundary. See [ACP integration](/openwiki/integrations/acp.md) and [Hooks lifecycle](/openwiki/concepts/hooks-lifecycle.md).
 
-```mermaid
-flowchart TD
-    Input["request with thread and workspace context"] --> Validate["validate stored workspace binding"]
-    Validate --> Policy{"policy unchanged"}
-    Policy -->|no| Reject["reject workspace conflict"]
-    Policy -->|yes| Cache{"runtime cached"}
-    Cache -->|yes| Graph["use workspace runtime graph"]
-    Cache -->|no| Build["resolve config and build runtime"]
-    Build --> Graph
-    Graph --> Checkpoint["execute with thread checkpoint"]
-```
+## Terminal program status
 
-*The durable binding authorizes execution context; runtime caching only reuses construction work.*
+Terminal status is independent of the agent-server protocol. `program_status.py` implements the Program Status Protocol with `OSC 7501` records for terminals or multiplexers that support it. `ProgramStatus` validates legal state/field combinations, record-ID grammar, progress bounds, and state-specific `kind`; text is converted to one sanitized line, byte-truncated without breaking UTF-8, then base64 encoded. Reporting is best effort: invalid records and writer failures are dropped rather than breaking the agent, and `DEEPAGENTS_CODE_NO_TERMINAL_ESCAPE` applies through the shared terminal writer.
 
-For a request with execution context, the graph factory requires a thread ID and workspace context, validates the binding, and selects a workspace runtime. Policy drift is rejected, whereas a runtime-fingerprint-only change rebuilds the runtime without invalidating the binding. Checkpoints preserve graph state; the binding preserves the directory and execution-policy assumptions needed to resume it safely.
+`ProgramStatusReporter` is thread-safe, suppresses duplicate per-record sequences, and normally registers an `atexit` clear after its first successful report. Its `clear()` operation removes a record and its descendants, or every record at the root. Interactive `DeepAgentsApp` owns an `AgentStatusTracker`, starts at `idle`, and clears records when the app exits. The tracker gives the newest outstanding blocker precedence over work and prior outcome, then reports `working`, `done`, `error`, or `idle`; prompts map to `blocked` with `permission`, `question`, or `auth`. Starting new work clears an old outcome, while changing or clearing a transcript drops its transcript-mounted blockers.
 
-Shutdown is ownership-aware. `server_session` cleans MCP sessions and stops the child in a `finally` block. `ServerProcess.stop()` is idempotent and concurrency-safe; on POSIX teardown signals the detached server process group with `SIGTERM` before escalation. Headless teardown drains pending hook work and releases its held thread lease.
+Headless CLI has different terminal semantics. It sends `working` before `run_non_interactive()`, uses a reporter with `clear_on_exit=False`, and reports `done` for success or `error` for failure just before exit so the terminal can retain a terminal result. Ctrl-C or an unknown exit produces `clear`; a timeout reports error and carries its timeout reason. Neither surface sends the protocol support query, avoiding startup latency or a false negative on a slow terminal.
 
-## Product version and update subsystem
+## Server-authoritative model transport
 
-### Version ownership and reporting
+The model picker remains deliberately separate from hook execution. Model metadata crosses the process boundary as validated provider-independent JSON: the server serves cached launch metadata at `GET /dcode/model`, resolves thread-bound proposals in its workspace environment, and the client applies metadata without constructing a provider model.
 
-`deepagents_code._version.__version__` is the dcode distribution version, kept in sync with `pyproject.toml` by release-please. `--version` reports both the CLI distribution and the installed `deepagents` SDK version, then optional dependencies; it is intentionally offline and consults only fresh local cache for any update hint.
+The private workspace-bound `POST /dcode/threads/{thread_id}/models` endpoint validates catalog requests, verifies the thread workspace, and discovers the catalog in the server's saved model environment; it applies workspace profile overrides only for the main purpose. `ModelCatalog` carries only strict presentation and readiness data: scalar whitelisted profile fields with override provenance, provider readiness and labels without credential values, allowed-model policy, and the retained current spec; arbitrary profile extensions and constructor data do not cross the process boundary.
 
-The update subsystem belongs to the dcode product, not to the SDK. It can read `deepagents` PyPI metadata solely to label the installed SDK release age. It does **not** check for, download, or independently update the SDK. Updating dcode installs the dcode distribution and its resolved dependencies as one tool environment.
+When connected to a server, the app delegates main and auxiliary picker catalog loading to `RemoteAgent.aget_model_catalog()` with the current thread, while the auxiliary path explicitly uses `purpose="auxiliary"`; local discovery is retained only as a disconnected bootstrap fallback. A server-backed `ModelSelectorScreen` renders catalog-supplied policy, profiles, readiness, and installation metadata while keeping local preferences, and it avoids local provider discovery and inference: unknown explicit providers remain unknown and ambiguous IDs are deferred to inference-host resolution. See [Profiles and models](/openwiki/concepts/profiles-models.md).
 
-### Best-effort discovery and local state
+## Change and test guidance
 
-Update discovery is advisory and must never prevent a session from starting. `latest_version.json` caches stable and prerelease dcode versions, release timestamps, and targeted prerequisite metadata for 24 hours. Startup reads this cache only: missing, stale, corrupt, invalid, or ambiguous data returns no answer without contacting PyPI. The interactive app performs its PyPI check in a background worker after first paint; errors leave the current session running and preserve an existing on-screen result rather than retracting it.
-
-```mermaid
-flowchart TD
-    Start["dcode starts"] --> Gate{"checks and auto-update enabled"}
-    Gate -->|no| Launch["launch current version"]
-    Gate -->|yes| Cache{"fresh local update cache"}
-    Cache -->|no| Launch
-    Cache -->|yes| Available{"newer dcode release"}
-    Available -->|no| Launch
-    Available -->|yes| Lock{"install lock acquired"}
-    Lock -->|no| Launch
-    Lock -->|yes| Install["install inspected dcode release"]
-    Install -->|failure| Record["record retry cooldown"]
-    Record --> Launch
-    Install -->|success| Restart["re-exec process"]
-```
-
-*The startup path acts only on a fresh local answer; network refresh is deferred to the running application.*
-
-`update_state.json` records notification throttling, “what's new” acknowledgement, and startup-update retry/defer markers. Read failures degrade to empty state; write failures are logged and generally allow a later retry. Cache writes for fetched version data use a sibling temporary file and atomic replacement so readers never observe a partial JSON cache. The state is product-local UX and recovery data, not agent or SDK state.
-
-### Install safety and failure semantics
-
-Managed configuration can disable checks or automatic updates. An unreadable, corrupt, or invalid managed update policy fails closed because the feature reaches the network and can install binaries; editable installs never auto-update. User configuration and environment settings follow the configuration layering described in [Configuration layering](/openwiki/concepts/config-layering.md).
-
-When automatic updates are enabled, startup only uses the fresh cached result. A cross-process advisory install lock serializes changes to the shared tool environment, with a profile-scoped fallback when the installation lock directory is unwritable. An installer preserves the inspected dcode release, existing extras, receipt-managed packages, and interpreter rather than guessing a different environment. If an install fails, dcode reports it and launches the installed version; same-version failures receive a cooldown to avoid stalling every launch.
-
-A successful install is different: the process must re-exec before launching the TUI, because already imported modules and newly rewritten site-packages would otherwise make a mixed-version process. The restart sentinel prevents restart loops, and a failure after an install exits rather than launching mixed code. In-session checks do not install: they surface a durable restart/update action, so a running agent session is not interrupted.
-
-## Change guidance and focused tests
-
-- Treat CLI/UI behavior, server workspace policy, and reusable SDK capabilities as separate ownership layers. Add graph behavior through `create_cli_agent` and server configuration, not by coupling agent code to Textual.
-- Preserve the workspace-binding distinction: a runtime cache may be rebuilt, but a thread must not be reused across incompatible execution policy.
-- Keep update checks best-effort. Do not put network I/O on `--version` or the startup critical path, and do not turn SDK release-age metadata into an SDK updater.
-- Preserve updater invariants when changing install code: an update targets the running tool environment, concurrent installers are serialized, failed installs remain launchable, and successful installs re-exec.
-
-Focused tests cover the split startup behavior: fresh cache answers do not make HTTP requests, stale/missing/corrupt timestamps fail safely, cached prerequisite constraints reject unsafe values, and on-disk distribution metadata—not the already imported module—verifies an installed update. Startup tests verify lock contention, lock coverage during installation, and lock release before restart. Version tests verify the offline CLI report includes CLI, SDK, and optional-dependency facts.
-
-For operation, see [Run a dcode session](/openwiki/workflows/run-dcode-session.md) and [Quickstart](/openwiki/quickstart.md). For local development and test execution, see [Development](/openwiki/operations/development.md). For agent memory and compaction behavior, see [Context management](/openwiki/concepts/context-management.md).
+- Do not move hook command execution into server middleware. The server must own the exact lifecycle boundary, while the client owns trusted configuration, local transcripts, presentation, and handler processes.
+- Preserve snapshot identity, deterministic invocation IDs, client fulfillment deduplication, and server validation on resume. A retry must not execute a decision-producing hook twice or apply it to a different policy snapshot.
+- Keep server hook state private but checkpointed. Post-tool results must be committed before post hooks run, and subagent result merges must not leak private hook channels.
+- Keep `PreToolUse` before approval routing and preserve the distinction between explicit hook allow, deny, ask, and no opinion. Headless auto-approval must not bypass permission hooks.
+- Treat OSC output as cosmetic and best effort. Preserve protocol validation, duplicate suppression, interactive clear-on-exit, and headless retained final status.
+- Focus tests on real-graph pre-tool denial and resume, response mismatch handling, duplicate fulfillment, offload replay, post-tool cleanup, and parallel-subagent private-state isolation. For status, test state precedence, prompt blocking/unblocking, queued turns, terminal preference opt-out, interactive clearing, and headless final outcomes.

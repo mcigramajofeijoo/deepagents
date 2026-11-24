@@ -115,6 +115,7 @@ from deepagents_code.config import (
     get_default_coding_instructions,
     get_glyphs,
     get_langsmith_project_name,
+    is_git_attribution_enabled,
     restore_user_langsmith_env,
     runtime_state,
 )
@@ -136,6 +137,11 @@ from deepagents_code.offload_middleware import (
     OffloadOperation,
     _create_cli_compaction_middleware,
     attach_offload_operation,
+)
+from deepagents_code.output_truncation import (
+    EmptyTruncatedReplyMiddleware,
+    ModelOutputTruncatedError,
+    SubagentTruncatedReplyMiddleware,
 )
 from deepagents_code.plugins.adapters.skills_middleware import PluginSkillsMiddleware
 from deepagents_code.project_utils import ProjectContext, get_server_project_context
@@ -162,6 +168,8 @@ def _format_task_error(error: Exception, request: ToolCallRequest) -> str | None
     subagent_type = request.tool_call.get("args", {}).get("subagent_type")
     subagent_name = subagent_type if isinstance(subagent_type, str) else "unknown"
     logger.debug("Subagent %r failed", subagent_name, exc_info=error)
+    if isinstance(error, ModelOutputTruncatedError):
+        return f"Subagent {subagent_name!r} failed: {error}"
     return f"Subagent {subagent_name!r} failed. You may retry this task."
 
 
@@ -2772,6 +2780,39 @@ def create_cli_agent(
     ):
         extension_registry = None
     mcp_tools = tuple(mcp_tools or ())
+    from deepagents_code.config_manifest import get_option
+    from deepagents_code.configuration.resolver import get_config_resolver
+    from deepagents_code.provider_tool_search import MCPProviderToolSearchMiddleware
+
+    search_option = get_option("models.provider_tool_search")
+    provider_tool_search = bool(
+        search_option
+        and get_config_resolver()
+        .resolve_options((search_option,))[search_option.key]
+        .value
+    )
+    skill_tools = tuple(
+        item
+        for item in mcp_tools
+        if (item.metadata or {}).get("_deepagents_code_skill_only") is True
+    )
+    skill_tool_ids = {id(item) for item in skill_tools}
+    tools = [item for item in tools if id(item) not in skill_tool_ids]
+    if skill_tools and mcp_server_info:
+        skill_tool_names = {item.name for item in skill_tools}
+        mcp_server_info = [
+            replace(
+                server,
+                tools=tuple(
+                    item for item in server.tools if item.name not in skill_tool_names
+                ),
+            )
+            for server in mcp_server_info
+        ]
+    if skill_tools and not enable_skills:
+        logger.warning(
+            "Skill-only MCP tools are unavailable because skills are disabled"
+        )
     if auto_mode_enabled and sandbox is not None:
         logger.warning(
             "Classifier-backed Auto is unavailable with a sandbox; using Manual HITL"
@@ -2783,6 +2824,21 @@ def create_cli_agent(
         else (project_context.user_cwd if project_context is not None else None)
     )
 
+    from deepagents_code.git_trace import GitTraceMiddleware
+
+    trace_cwd = (
+        get_default_working_dir(sandbox_type)
+        if sandbox is not None and sandbox_type is not None
+        else str(effective_cwd)
+        if effective_cwd is not None
+        else ""
+    )
+    git_trace: list[AgentMiddleware[Any, Any]] = (
+        [GitTraceMiddleware(lambda: backend, trace_cwd)]
+        if is_git_attribution_enabled()
+        else []
+    )
+
     # Setup agent directory for persistent memory (if enabled)
     if enable_memory or enable_skills:
         agent_dir = ensure_agent_dir(assistant_id)
@@ -2791,6 +2847,12 @@ def create_cli_agent(
             # Create empty file for user customizations
             # Base instructions are loaded fresh from get_system_prompt()
             agent_md.touch()
+
+    skill_sources = (
+        get_skill_sources(assistant_id=assistant_id, project_context=project_context)
+        if enable_skills
+        else []
+    )
 
     # Load custom subagents from filesystem
     custom_subagents: list[SubAgent | CompiledSubAgent] = []
@@ -2830,13 +2892,23 @@ def create_cli_agent(
         else get_project_agents_dir(runtime_credentials.project_root)
     )
 
+    headless_mcp_names: set[str] = set()
+    if not interactive and mcp_tools:
+        from deepagents_code.auto_mode import gated_mcp_tool_names
+
+        headless_mcp_names = gated_mcp_tool_names(mcp_tools)
+
     def _subagent_cli_middleware(
         *,
         has_explicit_model: bool,
     ) -> list[AgentMiddleware[Any, Any]]:
         from deepagents_code.cost_tracking import CostTrackingMiddleware
 
-        middleware: list[AgentMiddleware[Any, Any]] = []
+        middleware: list[AgentMiddleware[Any, Any]] = [*git_trace]
+        if headless_mcp_names:
+            from deepagents_code.auto_mode import HeadlessMCPGuardMiddleware
+
+            middleware.append(HeadlessMCPGuardMiddleware(headless_mcp_names))
         if resolved_interrupt_on is not None:
             middleware.append(AsyncApprovalHITLMiddleware(resolved_interrupt_on))
         if not has_explicit_model:
@@ -2850,7 +2922,9 @@ def create_cli_agent(
         # Checkpoint nested spend before HITL can pause the subgraph, then hand
         # the completed delta back through owner-scoped state for the parent
         # graph to add to its durable total.
-        middleware.append(CostTrackingMiddleware(nested=True))
+        middleware.extend(
+            [CostTrackingMiddleware(nested=True), SubagentTruncatedReplyMiddleware()]
+        )
         # Interactive turns may legitimately be tool-free, so terminal-stall
         # recovery is installed only on headless stacks. The middleware itself
         # activates only for the measured Fireworks GLM-5.2 endpoint.
@@ -2892,6 +2966,18 @@ def create_cli_agent(
             middleware.append(
                 ManagedMemoryGuardMiddleware([get_user_agent_md_path(assistant_id)])
             )
+        if enable_skills and skill_tools:
+            middleware.insert(
+                0,
+                PluginSkillsMiddleware(
+                    backend=FilesystemBackend(virtual_mode=False),
+                    sources=skill_sources,
+                    path_base=effective_cwd,
+                    tools=skill_tools,
+                ),
+            )
+        if provider_tool_search and mcp_tools:
+            middleware.append(MCPProviderToolSearchMiddleware(mcp_tools))
         return middleware
 
     from deepagents_code._cli_context import INHERIT_CLASSIFIER_MODEL
@@ -3003,23 +3089,26 @@ def create_cli_agent(
 
     # Build middleware stack based on enabled features
     agent_middleware: list[AgentMiddleware[Any, Any]] = [
+        *git_trace,
         ConfigurableModelMiddleware(
             cli_max_retries=cli_max_retries,
             environ=environment,
             model_result=model_result,
         ),
+        # Wrap every other model-call middleware. Inside model selection, the
+        # guard sees the resolved model for its error message. Outside GLM
+        # stall recovery, recovery still gets its one retry first. Outside
+        # `CodeModelRetryMiddleware`, the error is never retried. Outside
+        # `BtwOperation`, the side-question capture runs as before.
+        EmptyTruncatedReplyMiddleware(),
     ]
     if not interactive:
         agent_middleware.append(_GlmTerminalStallRecovery())
 
-    if not interactive and mcp_tools:
-        from deepagents_code.auto_mode import (
-            HeadlessMCPGuardMiddleware,
-            gated_mcp_tool_names,
-        )
+    if headless_mcp_names:
+        from deepagents_code.auto_mode import HeadlessMCPGuardMiddleware
 
-        if gated_names := gated_mcp_tool_names(mcp_tools):
-            agent_middleware.append(HeadlessMCPGuardMiddleware(gated_names))
+        agent_middleware.append(HeadlessMCPGuardMiddleware(headless_mcp_names))
 
     # Resume state: declares private checkpoint channels used on resume.
     # `ResumeStateMiddleware.after_model` writes `_context_tokens`; model metadata
@@ -3097,14 +3186,11 @@ def create_cli_agent(
 
     # Add skills middleware
     if enable_skills:
-        sources = get_skill_sources(
-            assistant_id=assistant_id,
-            project_context=project_context,
-        )
         skills_middleware = PluginSkillsMiddleware(
             backend=FilesystemBackend(virtual_mode=False),
-            sources=sources,
+            sources=skill_sources,
             path_base=effective_cwd,
+            tools=skill_tools,
         )
         agent_middleware.append(skills_middleware)
         instruction_middleware.append(skills_middleware)
@@ -3121,6 +3207,9 @@ def create_cli_agent(
             # agent-only credentials in the workspace environment.
             shell_env = dict(environment)
             shell_env["GIT_TERMINAL_PROMPT"] = "0"
+            # Lets CLIs the agent runs tell the call came from dcode, the way
+            # Claude Code sets `CLAUDECODE` and Cursor sets `CURSOR_AGENT`.
+            shell_env["DEEPAGENTS_CODE"] = "1"
             restore_user_langsmith_env(shell_env, start_path=effective_cwd)
             user_tracing_project = shell_env.get("LANGSMITH_PROJECT")
             # Re-apply a launch-time PYTHONPATH that was stripped from the server
@@ -3147,6 +3236,9 @@ def create_cli_agent(
         backend = sandbox  # Remote sandbox (ModalSandbox, etc.)
         # Note: Shell middleware not used in sandbox mode
         # File operations and execute tool are provided by the sandbox backend
+
+    if provider_tool_search and mcp_tools:
+        agent_middleware.append(MCPProviderToolSearchMiddleware(mcp_tools))
 
     if enable_interpreter:
         if sandbox is not None:

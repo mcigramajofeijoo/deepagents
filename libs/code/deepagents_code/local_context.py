@@ -14,6 +14,16 @@ import html
 import inspect
 import json
 import logging
+import os
+import shutil
+import subprocess  # noqa: S404  # fixed-argv Git for Windows lookup
+import sys
+import tempfile
+import threading
+from collections import OrderedDict
+from contextlib import contextmanager
+from functools import cache
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -24,6 +34,7 @@ from typing import (
     runtime_checkable,
 )
 
+from deepagents.backends import LocalShellBackend
 from langchain.agents.middleware.types import (
     AgentMiddleware,
     AgentState,
@@ -39,10 +50,11 @@ from deepagents_code._constants import (
     LOCAL_CONTEXT_MESSAGE_SOURCE,
     SYSTEM_MESSAGE_PREFIX,
 )
+from deepagents_code.goal_state_notice import anchor_summarization_event
 from deepagents_code.unicode_security import sanitize_control_chars
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Generator
 
     from deepagents.backends.protocol import ExecuteResponse
     from deepagents.middleware.summarization import SummarizationEvent
@@ -57,11 +69,23 @@ _TOOL_NAME_DISPLAY_LIMIT = 10
 _DETECT_SCRIPT_TIMEOUT = 30
 """Timeout in seconds for the environment detection script."""
 
+_GIT_EXEC_PATH_TIMEOUT = 5
+"""Timeout in seconds for `git --exec-path` when locating Git Bash on Windows."""
+
 _MCP_ERROR_DETAIL_LIMIT = 200
 """Max characters of an MCP server error surfaced in the system prompt."""
 
 _TRACING_PROJECT_NAME_LIMIT = 200
 """Max characters of a LangSmith project name surfaced in the system prompt."""
+
+_FORKED_CONTEXT_KEY = "_deepagents_forked_context"
+"""State key the SDK sets on a forked subagent's initial state.
+
+Mirrors `deepagents.middleware.subagents._FORKED_CONTEXT_KEY`.
+"""
+
+_SNAPSHOT_CACHE_SIZE = 32
+"""Max threads whose parent snapshot is kept for forked subagents."""
 
 
 def _sanitize_error_detail(error: str | None) -> str:
@@ -127,6 +151,9 @@ def _build_mcp_context(servers: list[MCPServerInfo]) -> str:
     Returns:
         Formatted markdown string, or `""` if no servers.
     """
+    # Unapproved project servers carry names and transports straight from an
+    # unreviewed `.mcp.json`; nothing about them may reach the model.
+    servers = [s for s in servers if s.status != "untrusted"]
     if not servers:
         return ""
 
@@ -410,7 +437,21 @@ def _section_git() -> str:
     """
     return r"""# --- Git ---
 if $IN_GIT; then
-  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  if STATUS="$(git status --porcelain=v2 --branch --no-ahead-behind 2>/dev/null)"; then
+    SUMMARY=$(awk '
+      /^# branch.head / { branch = substr($0, 15) }
+      /^[12u?] / { changes++ }
+      END { print branch; print changes + 0 }
+    ' <<< "$STATUS")
+    BRANCH="${SUMMARY%%$'\n'*}"
+    DC="${SUMMARY##*$'\n'}"
+    if [ "$BRANCH" = "(detached)" ]; then
+      BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    fi
+  else
+    BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    DC=$(git status --porcelain 2>/dev/null | awk 'END { print NR }')
+  fi
   if [ "$BRANCH" = "HEAD" ]; then
     COMMIT="$(git rev-parse --short HEAD 2>/dev/null)"
     GT="**Git**: Detached HEAD at \`${COMMIT}\`"
@@ -428,7 +469,6 @@ if $IN_GIT; then
   done
   [ -n "$MAINS" ] && GT="${GT}, ${MAINS} available"
 
-  DC=$(git status --porcelain 2>/dev/null | awk 'END { print NR }')
   if [ "$DC" -gt 0 ]; then
     if [ "$DC" -eq 1 ]; then GT="${GT}, 1 uncommitted change"
     else GT="${GT}, ${DC} uncommitted changes"
@@ -641,8 +681,8 @@ if [ -n "$MK" ]; then
 fi"""
 
 
-def build_detect_script() -> str:
-    """Concatenate all section functions into the full detection script.
+def _build_detect_script_body() -> str:
+    """Concatenate all section functions into the detection script body.
 
     Independent sections run as parallel background jobs writing to temp
     files, then results are concatenated in the original display order.
@@ -650,7 +690,7 @@ def build_detect_script() -> str:
     because later sections depend on their variables.
 
     Returns:
-        Complete bash heredoc ready for `backend.execute()`.
+        Bash script body, without the heredoc wrapper.
     """
     # Header (sets CWD, IN_GIT, ROOT) + project run synchronously for others
     serial_prefix = f"{_section_header()}\n{_section_project()}"
@@ -680,11 +720,105 @@ def build_detect_script() -> str:
     )
     cat_line = "cat " + " ".join(f'"$_DCT/{name}"' for name, _ in parallel_sections)
 
-    body = f"{serial_prefix}\n{parallel_setup}\n{parallel_block}\nwait\n{cat_line}"
+    return f"{serial_prefix}\n{parallel_setup}\n{parallel_block}\nwait\n{cat_line}"
+
+
+def build_detect_script() -> str:
+    """Wrap the detection script body in a heredoc.
+
+    Returns:
+        Complete bash heredoc ready for `backend.execute()`.
+    """
+    body = _build_detect_script_body()
     return f"bash <<'__DETECT_CONTEXT_EOF__'\n{body}\n__DETECT_CONTEXT_EOF__\n"
 
 
 DETECT_CONTEXT_SCRIPT = build_detect_script()
+
+
+@cache
+def _windows_git_bash() -> Path | None:
+    """Locate the `bash.exe` that ships with Git for Windows.
+
+    Bare `bash` is avoided: on Windows it often resolves to the WSL launcher,
+    which runs in a Linux VM and would describe the wrong machine.
+
+    Returns:
+        Path to Git Bash, or `None` if Git for Windows is not installed.
+    """
+    # Windows also searches the current directory, which may be an untrusted
+    # project, so only absolute `PATH` entries are considered.
+    path = os.pathsep.join(
+        entry
+        for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if Path(entry).is_absolute()
+    )
+    git = shutil.which("git", path=path)
+    if git is not None and Path(git).is_absolute():
+        # `git` may be a shim (e.g. Scoop), so ask it where it is installed.
+        try:
+            exec_path = subprocess.run(  # noqa: S603  # fixed argv with resolved Git path
+                [git, "--exec-path"],
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=_GIT_EXEC_PATH_TIMEOUT,
+                check=True,
+            ).stdout.strip()
+        except OSError, subprocess.SubprocessError:
+            logger.debug("Git exec path lookup failed", exc_info=True)
+        else:
+            # e.g. C:/Program Files/Git/mingw64/libexec/git-core -> C:/Program Files/Git
+            for parent in Path(exec_path).parents:
+                bash = parent / "bin" / "bash.exe"
+                if bash.is_file():
+                    return bash
+    logger.info(
+        "Git for Windows not found; local context will be omitted from the "
+        "system prompt"
+    )
+    return None
+
+
+def _runs_through_cmd(backend: object) -> bool:
+    """Whether `backend` runs commands through `cmd.exe`.
+
+    `cmd.exe` has no heredocs and caps a command line at 8191 characters, so
+    the detection script must run from a file with Git Bash instead.
+
+    Returns:
+        `True` for `LocalShellBackend` on Windows.
+    """
+    return sys.platform == "win32" and isinstance(backend, LocalShellBackend)
+
+
+@contextmanager
+def _detect_command(backend: object) -> Generator[str | None]:
+    """Yield the command that runs the detection script on `backend`.
+
+    Args:
+        backend: Backend that will execute the command.
+
+    Yields:
+        Command for `backend.execute()`, or `None` when the script cannot run.
+    """
+    if not _runs_through_cmd(backend):
+        yield DETECT_CONTEXT_SCRIPT
+        return
+    bash = _windows_git_bash()
+    if bash is None:
+        yield None
+        return
+    fd, script = tempfile.mkstemp(prefix="dcode-context-", suffix=".sh")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            # Print `C:/...` like `git rev-parse --show-toplevel`, not `/c/...`.
+            f.write("pwd() { builtin pwd -W; }\n")
+            f.write(_build_detect_script_body())
+        yield f'"{bash}" "{script}"'
+    finally:
+        Path(script).unlink(missing_ok=True)
+
 
 # ---------------------------------------------------------------------------
 # State schema
@@ -708,6 +842,12 @@ class LocalContextState(AgentState):
 
     _latest_local_context_fingerprint: NotRequired[Annotated[str, PrivateStateAttr]]
     """Fingerprint of the latest context used to deduplicate refresh messages."""
+
+
+def _thread_id(runtime: Runtime) -> str | None:
+    """Return the current thread ID, or `None` without a checkpointer."""
+    info = getattr(runtime, "execution_info", None)
+    return getattr(info, "thread_id", None)
 
 
 # ---------------------------------------------------------------------------
@@ -756,6 +896,56 @@ class LocalContextMiddleware(AgentMiddleware):
         self._static_context = "\n\n".join(
             context for context in (tracing_context, mcp_context) if context
         )
+        # Forked subagents reuse this middleware instance but cannot see the
+        # parent's private `_local_context`, so keep the parent's snapshot here.
+        self._snapshots: OrderedDict[str, str] = OrderedDict()
+        self._snapshots_lock = threading.Lock()
+
+    def _remember_snapshot(
+        self, state: LocalContextState, runtime: Runtime, context: str | None
+    ) -> None:
+        """Record the parent agent's snapshot for forks on the same thread."""
+        thread_id = _thread_id(runtime)
+        if not context or thread_id is None or state.get(_FORKED_CONTEXT_KEY):
+            return
+        with self._snapshots_lock:
+            self._snapshots[thread_id] = context
+            self._snapshots.move_to_end(thread_id)
+            while len(self._snapshots) > _SNAPSHOT_CACHE_SIZE:
+                self._snapshots.popitem(last=False)
+
+    def _inherited_snapshot(
+        self, state: LocalContextState, runtime: Runtime
+    ) -> str | None:
+        """Return the parent's snapshot when running as a forked subagent.
+
+        Reusing it skips the detection script and keeps the fork's system
+        prompt byte-identical to the parent's, so the fork can reuse the
+        parent's prompt cache.
+        """
+        thread_id = _thread_id(runtime)
+        if thread_id is None or not state.get(_FORKED_CONTEXT_KEY):
+            return None
+        with self._snapshots_lock:
+            return self._snapshots.get(thread_id)
+
+    def _initial_update(
+        self, state: LocalContextState, runtime: Runtime, output: str | None
+    ) -> dict[str, Any] | None:
+        """Build the state update for a first-time capture.
+
+        Returns:
+            Private context and its fingerprint, or `None` without output.
+        """
+        if not output:
+            return None
+        self._remember_snapshot(state, runtime, output)
+        return {
+            "_local_context": output,
+            "_latest_local_context_fingerprint": hashlib.sha256(
+                output.encode()
+            ).hexdigest(),
+        }
 
     @staticmethod
     def _handle_detect_result(result: ExecuteResponse) -> str | None:
@@ -799,9 +989,10 @@ class LocalContextMiddleware(AgentMiddleware):
             )
             return None
         try:
-            result = backend.execute(
-                DETECT_CONTEXT_SCRIPT, timeout=_DETECT_SCRIPT_TIMEOUT
-            )
+            with _detect_command(backend) as command:
+                if command is None:
+                    return None
+                result = backend.execute(command, timeout=_DETECT_SCRIPT_TIMEOUT)
         except NotImplementedError:
             # Expected for async-only backends (e.g. HarborSandbox) that
             # define a stub execute() raising NotImplementedError.
@@ -877,9 +1068,9 @@ class LocalContextMiddleware(AgentMiddleware):
         raw_event = state.get("_summarization_event")
         if raw_event is None:
             return None
-        event: SummarizationEvent = raw_event
-        cutoff = event.get("cutoff_index")
         messages = state.get("messages", [])
+        event: SummarizationEvent = anchor_summarization_event(raw_event, messages)
+        cutoff = event.get("cutoff_index")
         if (
             not isinstance(cutoff, int)
             or isinstance(cutoff, bool)
@@ -896,9 +1087,12 @@ class LocalContextMiddleware(AgentMiddleware):
     def before_agent(  # ty: ignore[invalid-method-override]
         self,
         state: LocalContextState,
-        runtime: Runtime,  # noqa: ARG002  # Required by interface but not used in local context
+        runtime: Runtime,
     ) -> dict[str, Any] | None:
         """Capture initial context or append a changed post-summary snapshot.
+
+        A forked subagent reuses the parent's snapshot instead of running
+        the detection script.
 
         Args:
             state: Current agent state.
@@ -907,33 +1101,30 @@ class LocalContextMiddleware(AgentMiddleware):
         Returns:
             Initial private context, a post-summary refresh update, or `None`.
         """
+        self._remember_snapshot(state, runtime, state.get("_local_context"))
         cutoff = self._pending_refresh_cutoff(state)
         if cutoff is not None:
             return self._refresh_update(state, self._run_detect_script(), cutoff)
         if state.get("_local_context"):
             return None
-        output = self._run_detect_script()
-        if output:
-            return {
-                "_local_context": output,
-                "_latest_local_context_fingerprint": hashlib.sha256(
-                    output.encode()
-                ).hexdigest(),
-            }
-        return None
+        output = self._inherited_snapshot(state, runtime)
+        if output is None:
+            output = self._run_detect_script()
+        return self._initial_update(state, runtime, output)
 
     async def _arun_detect_script(self) -> str | None:
         """Run the environment detection script asynchronously.
 
         Prefers `aexecute` when the backend implements `_AsyncExecutableBackend`.
         Falls back to running the sync detection script in a thread pool
-        for sync-only backends.
+        for sync-only backends, and for `cmd.exe` backends, whose script file
+        setup blocks.
 
         Returns:
             Stripped script output, or `None` on failure/empty output.
         """
         backend = self.backend
-        if not (
+        if _runs_through_cmd(backend) or not (
             isinstance(backend, _AsyncExecutableBackend)
             and inspect.iscoroutinefunction(backend.aexecute)
         ):
@@ -965,9 +1156,12 @@ class LocalContextMiddleware(AgentMiddleware):
     async def abefore_agent(  # ty: ignore[invalid-method-override]
         self,
         state: LocalContextState,
-        runtime: Runtime,  # noqa: ARG002  # Required by interface but not used in local context
+        runtime: Runtime,
     ) -> dict[str, Any] | None:
         """Capture initial context or append an async post-summary refresh.
+
+        A forked subagent reuses the parent's snapshot instead of running
+        the detection script.
 
         Args:
             state: Current agent state.
@@ -976,21 +1170,17 @@ class LocalContextMiddleware(AgentMiddleware):
         Returns:
             Initial private context, a post-summary refresh update, or `None`.
         """
+        self._remember_snapshot(state, runtime, state.get("_local_context"))
         cutoff = self._pending_refresh_cutoff(state)
         if cutoff is not None:
             output = await self._arun_detect_script()
             return self._refresh_update(state, output, cutoff)
         if state.get("_local_context"):
             return None
-        output = await self._arun_detect_script()
-        if output:
-            return {
-                "_local_context": output,
-                "_latest_local_context_fingerprint": hashlib.sha256(
-                    output.encode()
-                ).hexdigest(),
-            }
-        return None
+        output = self._inherited_snapshot(state, runtime)
+        if output is None:
+            output = await self._arun_detect_script()
+        return self._initial_update(state, runtime, output)
 
     def _get_modified_request(self, request: ModelRequest) -> ModelRequest | None:
         """Append local context and MCP info to the system prompt if available.

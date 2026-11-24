@@ -1,12 +1,14 @@
 """`CodeInterpreterMiddleware`: exposes a sandboxed JavaScript REPL tool."""
 
 import asyncio
-import contextlib
 import logging
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
-from typing import TYPE_CHECKING, Annotated, Any, Literal, NotRequired
+from dataclasses import replace
+from typing import TYPE_CHECKING, Annotated, Any, NotRequired
 
+from deepagents.backends import BackendConsumer, StateBackend
+from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware._utils import append_to_system_message
 from langchain.agents.middleware.types import (
     AgentMiddleware,
@@ -21,9 +23,12 @@ from langchain.agents.middleware.types import (
 )
 from langchain.tools import BaseTool, ToolRuntime
 from langchain_core._api import beta
+from langchain_core.callbacks import BaseCallbackManager
 from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.runnables.config import patch_config
 from langchain_core.tools import StructuredTool
 from langgraph.channels import DeltaChannel
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -31,6 +36,7 @@ if TYPE_CHECKING:
 
 from langchain_quickjs._format import format_outcome
 from langchain_quickjs._prompt import (
+    FS_SYSTEM_PROMPT,
     render_eval_tool_code_doc,
     render_eval_tool_description,
     render_repl_system_prompt,
@@ -41,7 +47,15 @@ from langchain_quickjs._ptc import (
     filter_tools_for_ptc,
     render_ptc_prompt,
 )
-from langchain_quickjs._repl import _DEFAULT_MAX_SUBAGENT_CONCURRENCY, _Registry
+from langchain_quickjs._repl import (
+    _DEFAULT_MAX_SUBAGENT_CONCURRENCY,
+    _REGISTRY,
+    EvalOutcome,
+    PersistenceMode,
+    _Slot,
+    _SlotConfig,
+    _SnapshotRestoreError,
+)
 from langchain_quickjs._snapshot import (
     encode_snapshot,
     normalize_signing_key,
@@ -58,8 +72,6 @@ _DEFAULT_TIMEOUT = 5.0
 _DEFAULT_MAX_PTC_CALLS = 256
 _DEFAULT_MAX_RESULT_CHARS = 4_000
 _DEFAULT_TOOL_NAME = "eval"
-
-PersistenceMode = Literal["thread", "turn", "call"]
 
 
 class REPLState(AgentState):
@@ -82,7 +94,7 @@ class EvalSchema(BaseModel):
     code: str = Field(
         description=(
             "JavaScript expression or statement(s) to evaluate. "
-            "No fs/network/real-clock access."
+            "No network/real-clock access."
         ),
     )
 
@@ -110,17 +122,29 @@ def _new_slot_id() -> str:
 
 
 @beta()
-class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT]):
+class CodeInterpreterMiddleware(
+    AgentMiddleware[REPLState, ContextT, ResponseT], BackendConsumer
+):
     """Middleware exposing a JS REPL to the agent.
 
     Each LangGraph thread gets its own QuickJS slot (worker + runtime +
     context), so globals from one conversation cannot leak into another.
 
+    !!! danger "`fs` bypasses file permissions and approvals"
+
+        With `fs` set, code the model writes can read, write, and delete
+        anything the backend can reach. `fs` calls the backend directly, so
+        `FilesystemMiddleware` permission rules, `create_deep_agent`
+        `permissions`, and `interrupt_on` approval do not apply to it. On a
+        `FilesystemBackend` with `virtual_mode=False`, or a local shell
+        backend, that is the host's filesystem. Enable `fs` only for trusted
+        use or with a backend sandboxed to files the agent may change.
+
     Args:
         memory_limit: Bytes the QuickJS heap may use. Shared across all
             contexts under the same Runtime. Default 64 MiB.
         timeout: Per-call timeout in seconds. Applied to every
-            `eval` on every context. Default 5.
+            `eval` on every context. `None` disables the deadline. Default 5.
 
             !!! warning
 
@@ -130,6 +154,13 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
                 is not counted against it. A slow or blocking host call can
                 therefore stall an `eval` for longer than `timeout` seconds, so
                 do not rely on it to bound total wall-clock duration.
+
+            !!! warning
+
+                Avoid `timeout=None` unless absolutely needed: a runaway `eval`
+                then runs forever, and asyncio cancellation cannot stop it.
+                Only use it with an external limit that can, such as a
+                process kill or workflow timeout.
         max_ptc_calls: Maximum number of `tools.*` bridge calls allowed
             during one `eval` execution. Exceeding this budget throws
             from the host-function bridge before invoking the tool.
@@ -190,6 +221,29 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
 
             The REPL's own tool is always excluded; a model asking for
             `tools.eval("...")` would recurse pointlessly.
+
+            Tools with `extras["defer_loading"]` stay callable from code but
+            are left out of the prompt's API reference until tool search
+            finds them. `ProviderToolSearchMiddleware` sets that flag per
+            model call, so list it before this middleware.
+        fs: Backend for a Node-style `fs` global in code: `readFile`,
+            `writeFile`, `readdir`, `access`, and `rm`, also under
+            `fs.promises`. `None` (default) gives code no `fs`. `True` uses
+            the backend `create_deep_agent` gives its file tools; with any
+            other agent factory, pass the backend itself. One middleware
+            instance with `fs=True` serves one agent's backend. `fs` reads
+            and writes UTF-8 text only and has only async functions. A file
+            too big for the QuickJS heap (`memory_limit`) ends the eval with
+            `MarshalError`.
+
+            !!! danger
+                `fs` calls the backend directly, not the file tools, so no
+                permission rule or approval guards it: code can read, write,
+                and delete anything the backend can reach. Leave `fs` unset
+                for an agent that relies on `FilesystemMiddleware`
+                permissions, `create_deep_agent` `permissions`, or
+                `interrupt_on` for files. `fs=True` gives code the same reach
+                as the agent's own backend.
         mode: REPL state persistence mode.
             - `"thread"`: state persists across calls and across turns.
             - `"turn"`: state persists across calls within a turn only.
@@ -234,7 +288,7 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         self,
         *,
         memory_limit: int = _DEFAULT_MEMORY_LIMIT,
-        timeout: float = _DEFAULT_TIMEOUT,
+        timeout: float | None = _DEFAULT_TIMEOUT,
         max_ptc_calls: int | None = _DEFAULT_MAX_PTC_CALLS,
         tool_name: str = _DEFAULT_TOOL_NAME,
         max_result_chars: int = _DEFAULT_MAX_RESULT_CHARS,
@@ -242,12 +296,16 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         subagents: bool = True,
         max_subagent_concurrency: int = _DEFAULT_MAX_SUBAGENT_CONCURRENCY,
         ptc: PTCOption | None = None,
+        fs: BackendProtocol | bool | None = None,
         mode: PersistenceMode | None = None,
         max_snapshot_bytes: int | None = None,
         snapshot_signing_key: str | bytes | None = None,
     ) -> None:
         """Initialize REPL middleware state and build the exposed eval tool."""
         super().__init__()
+        if timeout is not None and not timeout > 0:
+            msg = "`timeout` must be > 0 or None"
+            raise ValueError(msg)
         if max_ptc_calls is not None and max_ptc_calls < 1:
             msg = "`max_ptc_calls` must be >= 1 or None"
             raise ValueError(msg)
@@ -266,6 +324,8 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         self._subagents = subagents
         self._max_subagent_concurrency = max_subagent_concurrency
         self._ptc = ptc
+        self._fs_from_agent = fs is True
+        self._fs = None if isinstance(fs, bool) else fs
         self._mode = _resolve_mode(mode=mode)
         self._max_snapshot_bytes = (
             memory_limit if max_snapshot_bytes is None else max_snapshot_bytes
@@ -275,7 +335,7 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
             if snapshot_signing_key is not None
             else None
         )
-        self._registry = _Registry(
+        self._slot_config = _SlotConfig(
             memory_limit=memory_limit,
             timeout=timeout,
             capture_console=capture_console,
@@ -284,9 +344,9 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
             subagents_enabled=subagents,
             max_subagent_concurrency=max_subagent_concurrency,
         )
+        self._registry = _REGISTRY
         self._memory_limit_mb = memory_limit // (1024 * 1024)
         self._base_prompt_cache: dict[bool, str] = {}
-        self._ptc_prompt_cache: tuple[frozenset[str], str] | None = None
         self._ptc_tools_by_slot: dict[str, tuple[BaseTool, ...]] = {}
         self.tools: list[BaseTool] = [self._build_tool()]
 
@@ -295,10 +355,12 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         max_chars = self._max_result_chars
         middleware = self
         code_doc = render_eval_tool_code_doc(mode=self._mode)
-        tool_description = render_eval_tool_description(mode=self._mode)
+        tool_description = render_eval_tool_description(
+            mode=self._mode, files_attached=self._fs_enabled
+        )
 
-        def _make_tool_message(
-            outcome: Any,
+        def _make_tool_output(
+            outcome: EvalOutcome,
             tool_call_id: str | None,
         ) -> ToolMessage:
             return ToolMessage(
@@ -307,38 +369,82 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
                 name=tool_name,
             )
 
+        def _restore_error_output(
+            exc: _SnapshotRestoreError, tool_call_id: str | None
+        ) -> Command:
+            return Command(
+                update={
+                    "messages": [
+                        _make_tool_output(
+                            EvalOutcome(
+                                error_type=type(exc).__name__,
+                                error_message=(
+                                    "Failed to restore JavaScript state; "
+                                    "saved state was cleared. "
+                                    "The requested code was not executed."
+                                ),
+                            ),
+                            tool_call_id,
+                        )
+                    ],
+                    "_quickjs_snapshot_payload": None,
+                    "_quickjs_snapshot_hmac": None,
+                }
+            )
+
+        def _with_eval_callbacks(
+            runtime: ToolRuntime[None, Any], callbacks: BaseCallbackManager | None
+        ) -> ToolRuntime[None, Any]:
+            # Parent PTC tool calls and `task()` subagents on the eval run, not
+            # on the agent's tools step.
+            return replace(
+                runtime, config=patch_config(runtime.config, callbacks=callbacks)
+            )
+
         def sync_eval(
             runtime: ToolRuntime[None, Any],
             code: Annotated[str, code_doc],
-        ) -> ToolMessage:
+            callbacks: BaseCallbackManager | None = None,
+        ) -> ToolMessage | Command:
             slot_id = middleware._slot_id(runtime.state)
-            repl = middleware._repl_for_eval(slot_id)
+            slot = middleware._registry.acquire(slot_id, middleware._slot_config)
             try:
-                outcome = repl.eval_sync(
+                outcome = middleware._eval(
+                    slot,
+                    runtime.state,
                     code,
-                    outer_runtime=runtime,
+                    outer_runtime=_with_eval_callbacks(runtime, callbacks),
+                    tools=middleware._tools_for_eval(slot_id),
+                    fs=middleware._fs,
                 )
+            except _SnapshotRestoreError as exc:
+                return _restore_error_output(exc, runtime.tool_call_id)
             finally:
-                if middleware._mode == "call":
-                    middleware._registry.reset_repl(slot_id)
-            return _make_tool_message(outcome, runtime.tool_call_id)
+                middleware._registry.release(slot)
+            return _make_tool_output(outcome, runtime.tool_call_id)
 
         async def async_eval(
             runtime: ToolRuntime[None, Any],
             code: Annotated[str, code_doc],
-        ) -> ToolMessage:
+            callbacks: BaseCallbackManager | None = None,
+        ) -> ToolMessage | Command:
             slot_id = middleware._slot_id(runtime.state)
-            repl = middleware._repl_for_eval(slot_id)
+            slot = await middleware._registry.aacquire(slot_id, middleware._slot_config)
             try:
-                outcome = await repl.eval_async(
+                outcome = await middleware._aeval(
+                    slot,
+                    runtime.state,
                     code,
-                    outer_runtime=runtime,
+                    outer_runtime=_with_eval_callbacks(runtime, callbacks),
+                    tools=middleware._tools_for_eval(slot_id),
                     outer_loop=asyncio.get_running_loop(),
+                    fs=middleware._fs,
                 )
+            except _SnapshotRestoreError as exc:
+                return _restore_error_output(exc, runtime.tool_call_id)
             finally:
-                if middleware._mode == "call":
-                    middleware._registry.reset_repl(slot_id)
-            return _make_tool_message(outcome, runtime.tool_call_id)
+                middleware._registry.release(slot)
+            return _make_tool_output(outcome, runtime.tool_call_id)
 
         return StructuredTool.from_function(
             name=tool_name,
@@ -360,12 +466,41 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
                 names.add(entry.name)
         return names
 
-    def _repl_for_eval(self, slot_id: str) -> Any:
-        """Return the REPL slot for one eval invocation."""
-        repl = self._registry.get(slot_id)
-        if self._mode == "call" and self._ptc is not None:
-            repl.install_tools(list(self._ptc_tools_by_slot.get(slot_id, ())))
-        return repl
+    def _tools_for_eval(self, slot_id: str) -> tuple[BaseTool, ...] | None:
+        """Return current bindings without allocating an interpreter."""
+        return (
+            self._ptc_tools_by_slot.get(slot_id, ()) if self._ptc is not None else None
+        )
+
+    def _eval(
+        self, slot: _Slot, state: Mapping[str, object], code: str, **kwargs: Any
+    ) -> EvalOutcome:
+        """Run one eval on `slot`, applying the persistence mode around it."""
+        if snapshot := self._snapshot_for_eval(state):
+            slot.restore_snapshot(snapshot)
+        return slot.eval_sync(code, close_context_after=self._mode == "call", **kwargs)
+
+    async def _aeval(
+        self, slot: _Slot, state: Mapping[str, object], code: str, **kwargs: Any
+    ) -> EvalOutcome:
+        """Async variant of `_eval`."""
+        if snapshot := self._snapshot_for_eval(state):
+            await slot.arestore_snapshot(snapshot)
+        return await slot.eval_async(
+            code, close_context_after=self._mode == "call", **kwargs
+        )
+
+    def _snapshot_for_eval(self, state: Mapping[str, object]) -> bytes | None:
+        """Return authenticated thread state for lazy restoration."""
+        payload = state.get("_quickjs_snapshot_payload")
+        if (
+            self._mode == "thread"
+            and isinstance(payload, bytes)
+            and payload
+            and self._snapshot_authenticated(payload, state)
+        ):
+            return payload
+        return None
 
     def _slot_id(self, state: Mapping[str, object]) -> str:
         """Return the private interpreter slot initialized by `before_agent`."""
@@ -418,47 +553,36 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         state: REPLState,
         runtime: "Runtime[ContextT]",  # noqa: ARG002
     ) -> dict[str, Any] | None:
-        """Ensure a private REPL slot exists and restore snapshot bytes."""
-        slot_id = state.get("_quickjs_slot_id")
-        update: dict[str, Any] | None = None
-        if not isinstance(slot_id, str) or not slot_id:
-            update = self._slot_update_for_runtime()
-            slot_id = update["_quickjs_slot_id"]
-        if self._mode != "thread":
-            return update
-        payload = state.get("_quickjs_snapshot_payload")
-        if not payload:
-            return update
-        if not self._snapshot_authenticated(
-            payload, {**state, "_quickjs_slot_id": slot_id}
-        ):
-            return {
-                **(update or {}),
-                "_quickjs_snapshot_payload": None,
-                "_quickjs_snapshot_hmac": None,
-            }
-        repl = self._registry.get(slot_id)
-        try:
-            repl.restore_snapshot(payload, inject_globals=True)
-        except Exception:  # noqa: BLE001  # best-effort restore path
-            logger.warning(
-                "Failed to restore QuickJS snapshot for slot_id=%s",
-                slot_id,
-                exc_info=True,
+        """Assign a private slot and authenticate snapshots without creating a VM."""
+        # Never runs on resume. Keep a live Context only if it still matches
+        # the checkpoint's snapshot; one left by a run that died before
+        # `after_agent`, or behind a retry or fork, is closed so the next eval
+        # restores the snapshot. The slot's worker and Runtime stay warm.
+        if slot_id := state.get("_quickjs_slot_id"):
+            self._drop_slot_caches(slot_id)
+            self._registry.close_context(
+                slot_id, self._slot_config, keep_snapshot=self._snapshot_for_eval(state)
             )
-            return {
-                **(update or {}),
-                "_quickjs_snapshot_payload": None,
-                "_quickjs_snapshot_hmac": None,
-            }
-        return update
+        return self._prepare_slot(state)
 
     async def abefore_agent(
         self,
         state: REPLState,
         runtime: "Runtime[ContextT]",  # noqa: ARG002
     ) -> dict[str, Any] | None:
-        """Async variant of `before_agent` snapshot restore."""
+        """Async variant of `before_agent`."""
+        # See `before_agent`: any live Context here was left by a dead run.
+        if slot_id := state.get("_quickjs_slot_id"):
+            self._drop_slot_caches(slot_id)
+            await self._registry.aclose_context(
+                slot_id, self._slot_config, keep_snapshot=self._snapshot_for_eval(state)
+            )
+        return self._prepare_slot(state)
+
+    def _drop_slot_caches(self, slot_id: str) -> None:
+        self._ptc_tools_by_slot.pop(slot_id, None)
+
+    def _prepare_slot(self, state: REPLState) -> dict[str, Any] | None:
         slot_id = state.get("_quickjs_slot_id")
         update: dict[str, Any] | None = None
         if not isinstance(slot_id, str) or not slot_id:
@@ -472,20 +596,6 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         if not self._snapshot_authenticated(
             payload, {**state, "_quickjs_slot_id": slot_id}
         ):
-            return {
-                **(update or {}),
-                "_quickjs_snapshot_payload": None,
-                "_quickjs_snapshot_hmac": None,
-            }
-        repl = self._registry.get(slot_id)
-        try:
-            await repl.arestore_snapshot(payload, inject_globals=True)
-        except Exception:  # noqa: BLE001  # best-effort restore path
-            logger.warning(
-                "Failed to restore QuickJS snapshot for slot_id=%s",
-                slot_id,
-                exc_info=True,
-            )
             return {
                 **(update or {}),
                 "_quickjs_snapshot_payload": None,
@@ -536,19 +646,30 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
                 memory_limit_mb=self._memory_limit_mb,
                 mode=self._mode,
                 ptc_attached=ptc_attached,
+                files_attached=self._fs_enabled,
             )
             self._base_prompt_cache[ptc_attached] = cached
         return cached
 
     def _prepare_for_call(self, request: ModelRequest[ContextT]) -> str:
-        """Install PTC bindings for this turn and return the prompt addendum.
+        """Cache live PTC bindings and return the prompt addendum.
 
         Called from both sync and async model-call wrappers. Reads the
         live tool list off the request (middlewares upstream may have
-        filtered it), installs PTC bridges on the current thread's REPL,
-        and renders matching API-reference text.
+        filtered it) and renders matching API-reference text without creating a VM.
         """
-        request_tools: list[BaseTool] = list(getattr(request, "tools", []) or [])
+        if self._fs_from_agent and self._fs is None:
+            msg = (
+                "CodeInterpreterMiddleware(fs=True) has no backend: build the agent "
+                "with create_deep_agent, or pass the backend as fs."
+            )
+            raise ValueError(msg)
+        # Provider tool specs (e.g. a tool search tool) are dicts; skip them.
+        request_tools = [
+            tool
+            for tool in getattr(request, "tools", []) or []
+            if isinstance(tool, BaseTool)
+        ]
 
         subagent_section = ""
         if self._subagents and find_subagent_task_tool(request_tools) is not None:
@@ -558,7 +679,9 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
             )
 
         if self._ptc is None:
-            return self._base_prompt(ptc_attached=False) + subagent_section
+            return self._with_fs(
+                self._base_prompt(ptc_attached=False) + subagent_section
+            )
 
         exposed = filter_tools_for_ptc(
             request_tools,
@@ -567,21 +690,43 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         )
         prompt = self._base_prompt(ptc_attached=bool(exposed)) + subagent_section
         slot_id = self._slot_id(getattr(request, "state", {}))
-        repl = self._registry.get(slot_id)
-        repl.install_tools(exposed)
-        self._ptc_tools_by_slot[slot_id] = tuple(exposed)
-        # Rendering the TS-ish signature block is cheap but not free;
-        # cache by the set of exposed names. The set doesn't encode tool
-        # *identity* — if a tool keeps its name but its schema changes
-        # between turns, the cached prompt staleness is on the caller.
-        # Same tradeoff the TS package accepts; see the module docstring.
-        exposed_names = frozenset(t.name for t in exposed)
-        if self._ptc_prompt_cache is None or self._ptc_prompt_cache[0] != exposed_names:
-            self._ptc_prompt_cache = (
-                exposed_names,
-                render_ptc_prompt(exposed, tool_name=self._tool_name),
+        exposed_tools = tuple(exposed)
+        self._ptc_tools_by_slot[slot_id] = exposed_tools
+        deferred = {
+            tool.name
+            for tool in (*request_tools, *exposed_tools)
+            if (tool.extras or {}).get("defer_loading") is True
+        }
+        return self._with_fs(
+            prompt
+            + render_ptc_prompt(
+                exposed_tools, tool_name=self._tool_name, deferred=deferred
             )
-        return prompt + self._ptc_prompt_cache[1]
+        )
+
+    def _with_fs(self, prompt: str) -> str:
+        if not self._fs_enabled:
+            return prompt
+        return prompt.rstrip("\n") + FS_SYSTEM_PROMPT
+
+    @property
+    def _fs_enabled(self) -> bool:
+        return self._fs_from_agent or self._fs is not None
+
+    def bind_backend(self, backend: BackendProtocol) -> None:
+        """Use the agent's backend for `fs=True`; `create_deep_agent` calls this."""
+        if not self._fs_from_agent:
+            return
+        # Every `StateBackend` reads the running graph's own state, so any two
+        # are interchangeable; other backends must be the same object.
+        interchangeable = type(self._fs) is type(backend) is StateBackend
+        if self._fs is not None and self._fs is not backend and not interchangeable:
+            msg = (
+                "This CodeInterpreterMiddleware(fs=True) already serves another "
+                "agent's backend; create one middleware per agent."
+            )
+            raise ValueError(msg)
+        self._fs = backend
 
     def _extend(
         self, system_message: SystemMessage | None, prompt: str
@@ -624,33 +769,35 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         state: REPLState,
         runtime: "Runtime[ContextT]",  # noqa: ARG002
     ) -> dict[str, Any] | None:
-        """Snapshot REPL state (optional) and evict this turn's REPL slot."""
+        """Snapshot REPL state, keeping the Context warm (`thread`), or close it."""
         slot_id = self._slot_id(state)
-        self._ptc_tools_by_slot.pop(slot_id, None)
+        self._drop_slot_caches(slot_id)
         if self._mode != "thread":
-            self._registry.evict(slot_id)
+            self._registry.close_context(slot_id, self._slot_config)
             return None
-
-        repl = self._registry.get_if_exists(slot_id)
-        if repl is None:
+        slot = self._registry.lease_if_exists(slot_id, self._slot_config)
+        if slot is None:
             return None
         prior = state.get("_quickjs_snapshot_payload") or b""
-        update: dict[str, Any]
+        update: dict[str, Any] | None
         try:
-            update = self._snapshot_update(
-                payload=repl.create_snapshot(),
-                prior=prior,
-                slot_id=slot_id,
+            payload = slot.create_snapshot()
+            update = (
+                None
+                if payload is None
+                else self._snapshot_update(
+                    payload=payload, prior=prior, slot_id=slot_id
+                )
             )
         except Exception:  # noqa: BLE001  # best-effort snapshot path
             logger.warning(
-                "Failed to create QuickJS snapshot for thread_id=%s",
+                "Failed to create QuickJS snapshot for slot_id=%s",
                 slot_id,
                 exc_info=True,
             )
             update = {"_quickjs_snapshot_payload": None, "_quickjs_snapshot_hmac": None}
         finally:
-            self._registry.evict(slot_id)
+            self._registry.release(slot)
         return update
 
     async def aafter_agent(
@@ -658,39 +805,33 @@ class CodeInterpreterMiddleware(AgentMiddleware[REPLState, ContextT, ResponseT])
         state: REPLState,
         runtime: "Runtime[ContextT]",  # noqa: ARG002
     ) -> dict[str, Any] | None:
-        """Async variant of `after_agent` snapshot+evict behavior."""
+        """Async variant of `after_agent`."""
         slot_id = self._slot_id(state)
-        self._ptc_tools_by_slot.pop(slot_id, None)
+        self._drop_slot_caches(slot_id)
         if self._mode != "thread":
-            await self._registry.aevict(slot_id)
+            await self._registry.aclose_context(slot_id, self._slot_config)
             return None
-
-        repl = self._registry.get_if_exists(slot_id)
-        if repl is None:
+        slot = self._registry.lease_if_exists(slot_id, self._slot_config)
+        if slot is None:
             return None
         prior = state.get("_quickjs_snapshot_payload") or b""
-        update: dict[str, Any]
+        update: dict[str, Any] | None
         try:
-            update = self._snapshot_update(
-                payload=await repl.acreate_snapshot(),
-                prior=prior,
-                slot_id=slot_id,
+            payload = await slot.acreate_snapshot()
+            update = (
+                None
+                if payload is None
+                else self._snapshot_update(
+                    payload=payload, prior=prior, slot_id=slot_id
+                )
             )
         except Exception:  # noqa: BLE001  # best-effort snapshot path
             logger.warning(
-                "Failed to create QuickJS snapshot for thread_id=%s",
+                "Failed to create QuickJS snapshot for slot_id=%s",
                 slot_id,
                 exc_info=True,
             )
             update = {"_quickjs_snapshot_payload": None, "_quickjs_snapshot_hmac": None}
         finally:
-            await self._registry.aevict(slot_id)
+            self._registry.release(slot)
         return update
-
-    def __del__(self) -> None:
-        """Best-effort Runtime cleanup on GC; never raises at shutdown."""
-        # Wrapped in `contextlib.suppress` because __del__ must not raise
-        # during interpreter shutdown, when dependencies may already be
-        # half-unloaded.
-        with contextlib.suppress(Exception):
-            self._registry.close()

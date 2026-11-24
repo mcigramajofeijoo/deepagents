@@ -38,10 +38,15 @@ from deepagents_code._env_vars import (
     AUTO_CLASSIFIER_TIMEOUT,
     DANGEROUSLY_ENABLE_PROJECT_MCP_SERVERS,
     DISABLED_PROJECT_MCP_SERVERS,
+    EXPERIMENTAL,
+    EXTENSIONS_TRUST,
+    EXTRA_SKILLS_DIRS,
     FORKED_SUBAGENTS,
     HIDE_SPLASH_VERSION,
     MCP_TOOL_TIMEOUT,
+    PLUGIN_CACHE_DIR,
     READ_PROJECT_DOTENV,
+    SHELL_ALLOW_LIST,
     UI_CHARSET_MODE,
     is_env_truthy,
 )
@@ -100,6 +105,19 @@ class _BootstrapState:
     user_langsmith_env: dict[str, str | None] = dataclass_field(default_factory=dict)
     """Launch and project-dotenv LangSmith values intended for user commands."""
 
+    defer_redaction: bool = False
+    """Whether bootstrap leaves the redacting LangSmith client uninstalled.
+
+    Set by `defer_langsmith_secret_redaction` before bootstrap runs.
+    """
+
+    redaction_pending: bool = False
+    """Whether a deferred redacting LangSmith client still needs installing.
+
+    While this is set, no traced run may start in this process.
+    `ensure_langsmith_secret_redaction` installs the client and clears it.
+    """
+
     error: BaseException | None = None
     """Why bootstrap did not finish, when it was cut short.
 
@@ -116,6 +134,10 @@ _bootstrap_state = _BootstrapState()
 _bootstrap_lock = threading.Lock()
 """Guards `_ensure_bootstrap()` against concurrent access from the main thread
 and the prewarm worker thread."""
+
+_redaction_lock = threading.Lock()
+"""Serializes redacting-client installs so a deferred install cannot replace a
+newer one built from rotated `/auth` credentials."""
 
 _singleton_lock = threading.Lock()
 """Guards lazy construction of process-wide config, runtime, and console state."""
@@ -391,6 +413,11 @@ _PROJECT_DOTENV_DENIED_ENV_KEYS = frozenset(
         FORKED_SUBAGENTS,
         _LANGGRAPH_DEFAULT_RECURSION_LIMIT_ENV,
         "TERM_PROGRAM",
+        EXPERIMENTAL,
+        EXTENSIONS_TRUST,
+        PLUGIN_CACHE_DIR,
+        SHELL_ALLOW_LIST,
+        EXTRA_SKILLS_DIRS,
     }
 )
 """Env keys a *project* `.env` must not inject, even though they are otherwise
@@ -440,6 +467,23 @@ session degrades into repeated denials and approval prompts.
 Agents Code and is included in trace metadata. A project `.env` must not
 replace it: python-dotenv expands environment-variable references, which could
 otherwise forward a launch-environment value to the trace backend.
+
+`EXPERIMENTAL` and `EXTENSIONS_TRUST` together gate project Python extensions:
+the first enables them at all, and `always` in the second skips the
+"Project extensions run arbitrary Python" prompt. Honoring either from a
+project `.env` would let a cloned repo ship `.deepagents/extensions/` and run
+it as the user on launch without any trust decision.
+
+`PLUGIN_CACHE_DIR` relocates the plugin storage root, including the
+installed-plugin index that maps enabled plugin ids to the code they load. Like
+`DEEPAGENTS_HOME`, it moves files treated as user-trusted, so a repo must not
+point it at a directory it controls.
+
+`SHELL_ALLOW_LIST` decides which shell commands run without approval (`all`
+disables the prompt entirely), and `EXTRA_SKILLS_DIRS` widens the skill
+containment allowlist that stops a `SKILL.md` symlink from reading arbitrary
+files. Both are user-level approval decisions; `[skills].extra_allowed_dirs` in
+`~/.deepagents/config.toml` and the trusted env surfaces still set them.
 
 Unlike `_DOTENV_DENIED_ENV_KEYS` (denied from *any* `.env` because they turn
 `.env` loading into code execution), these are denied only from the *project*
@@ -1096,9 +1140,12 @@ def reconcile_tracing_environment(environ: Mapping[str, str]) -> None:
 
 def _clear_langsmith_env_caches() -> None:
     """Drop the LangSmith SDK's cached environment reads."""
+    ls_utils = sys.modules.get("langsmith.utils")
+    if ls_utils is None:
+        # The caches live on the module, so an SDK that has not been imported
+        # has read nothing yet. Importing it here would only cost startup time.
+        return
     try:
-        from langsmith import utils as ls_utils
-
         ls_utils.get_env_var.cache_clear()
         ls_utils.get_tracer_project.cache_clear()
     except Exception:  # cache shape is upstream's, not ours
@@ -1326,7 +1373,7 @@ def _load_langsmith_profile_config(
     if profiles is None:
         return None
 
-    if env is None:
+    if env is None or env is os.environ:
         return profiles.load_profile_client_config()
 
     from unittest.mock import patch
@@ -1686,6 +1733,21 @@ def apply_stored_langsmith_auth(*, replace_project: bool = False) -> None:
             save path sets it true because the saved project is the newest user
             choice for the already-running session.
     """
+    _apply_stored_langsmith_env(replace_project=replace_project)
+    with _redaction_lock:
+        configure_langsmith_secret_redaction()
+        # This install supersedes a deferred one. Without clearing the flag,
+        # the deferred install could later replace this client with one built
+        # from older credentials.
+        _bootstrap_state.redaction_pending = False
+
+
+def _apply_stored_langsmith_env(*, replace_project: bool = False) -> None:
+    """Apply the environment part of `apply_stored_langsmith_auth`.
+
+    Args:
+        replace_project: See `apply_stored_langsmith_auth`.
+    """
     from deepagents_code.model_config import apply_stored_service_credentials
 
     _apply_prefixed_langsmith_env()
@@ -1696,7 +1758,46 @@ def apply_stored_langsmith_auth(*, replace_project: bool = False) -> None:
     _apply_stored_langsmith_tracing(replace_project=replace_project)
     _disable_orphaned_tracing()
     _apply_default_langsmith_project()
-    configure_langsmith_secret_redaction()
+
+
+def defer_langsmith_secret_redaction() -> None:
+    """Defer the redacting LangSmith client install out of bootstrap.
+
+    Bootstrap still applies all LangSmith environment state. Only the client
+    install waits, because its `langsmith` import costs about 150-250 ms on the
+    startup path. The install then happens on the first call to
+    `ensure_langsmith_secret_redaction`. Every path in this process that can
+    start a traced run must call it first; `create_model` does.
+
+    Has no effect once bootstrap has run.
+    """
+    _bootstrap_state.defer_redaction = True
+
+
+def ensure_langsmith_secret_redaction() -> None:
+    """Install the redacting LangSmith client if bootstrap deferred it.
+
+    Idempotent and thread-safe. A caller blocks until the install is done, so
+    it cannot start a traced run before the redacting client is in place. If
+    the install raises, the flag stays set and the next caller tries again.
+    """
+    if _bootstrap_state.defer_redaction:
+        # Bootstrap decides whether an install is pending. Run it first so a
+        # caller that arrives before it cannot slip past an unset flag.
+        _ensure_bootstrap()
+    if not _bootstrap_state.redaction_pending:
+        return
+    with _redaction_lock:
+        if not _bootstrap_state.redaction_pending:
+            return
+        # Read the process environment, as bootstrap does, not a snapshot
+        # that a caller such as `create_model` scoped for its own use.
+        token = _active_environment.set(None)
+        try:
+            configure_langsmith_secret_redaction()
+        finally:
+            _active_environment.reset(token)
+        _bootstrap_state.redaction_pending = False
 
 
 def _warn_on_prefixed_langsmith_override(canonical: str, prefixed: str) -> None:
@@ -1903,6 +2004,11 @@ def _ensure_bootstrap() -> None:
             return
 
         try:
+            # Mark a deferred install pending before any step that can raise, so
+            # a partial bootstrap still installs the redacting client before
+            # the first traced run.
+            _bootstrap_state.redaction_pending = _bootstrap_state.defer_redaction
+
             # First, because this needs nothing but `os.environ`. Anything below
             # can raise into the handler, which this contract says to survive;
             # leaving the snapshot empty instead makes `_encode_user_langsmith_env`
@@ -1959,7 +2065,10 @@ def _ensure_bootstrap() -> None:
             # tracing defaults, disable orphaned tracing, and route active tracing
             # to the displayed project. Keeping this in one helper lets `/auth`
             # save apply the same state inside an already-running TUI session.
-            apply_stored_langsmith_auth()
+            if _bootstrap_state.defer_redaction:
+                _apply_stored_langsmith_env()
+            else:
+                apply_stored_langsmith_auth()
         except Exception as exc:
             _bootstrap_state.error = exc
             logger.exception(
@@ -2186,6 +2295,11 @@ _editable_cache: tuple[bool, str | None] | None = None
 _langsmith_url_cache: tuple[str, str] | None = None
 """Module-level cache for successful LangSmith project URL lookups."""
 
+_langsmith_url_error_cache: tuple[tuple[str | None, ...], LangSmithApiError] | None = (
+    None
+)
+"""Cache 401/403 lookups by project, API key, endpoint, and workspace settings."""
+
 _LANGSMITH_URL_LOOKUP_TIMEOUT_SECONDS = 2.0
 """Max seconds to wait for LangSmith project URL lookup.
 
@@ -2193,6 +2307,7 @@ Kept short so tracing metadata can never stall app flows.
 """
 
 
+@functools.cache
 def _get_deepagents_version() -> str | None:
     """Resolve the installed Deep Agents SDK version for diagnostics.
 
@@ -2200,6 +2315,10 @@ def _get_deepagents_version() -> str | None:
     this uses the shared resolver that prefers the editable source marker and
     appends an `+editable` suffix. A sibling monorepo workspace whose marker
     trails dcode's exact pin reports the pinned release baseline instead.
+
+    Cached for the process lifetime: `build_stream_config` calls this on every
+    turn, and the resolver scans installed distributions each time. The
+    installed SDK does not change while the process runs.
 
     Returns:
         The resolved Deep Agents SDK version, or `None` when unavailable.
@@ -2347,9 +2466,11 @@ def _compute_charset_mode() -> CharsetMode:
     if mode == "ascii":
         return CharsetMode.ASCII
 
-    encoding = getattr(sys.stdout, "encoding", "") or ""
-    if "utf" in encoding.lower():
-        return CharsetMode.UNICODE
+    # A stream that names its encoding decides: Git Bash exports a UTF-8
+    # `LANG`, yet Windows encodes redirected output with the ANSI code page.
+    encoding = getattr(sys.stdout, "encoding", None)
+    if encoding:
+        return CharsetMode.UNICODE if "utf" in encoding.lower() else CharsetMode.ASCII
     lang = os.environ.get("LANG", "") or os.environ.get("LC_ALL", "")
     return CharsetMode.UNICODE if "utf" in lang.lower() else CharsetMode.ASCII
 
@@ -2631,9 +2752,12 @@ def build_coding_agent_metadata(
         metadata["repository_url"] = repository_url
         metadata["repository_provider"] = repository_provider
         metadata["repository_name"] = repository_name
+        metadata["ls_git_repo"] = repository_name
+        metadata["ls_repo_provider"] = repository_provider
 
     if git_branch:
         metadata["git_branch"] = git_branch
+        metadata["ls_git_branch"] = git_branch
     commit_sha = _get_git_commit_sha()
     if commit_sha:
         metadata["git_commit_sha"] = commit_sha
@@ -2642,6 +2766,7 @@ def build_coding_agent_metadata(
 
     if user_id:
         metadata["user_id"] = user_id
+        metadata["ls_attribution_identifier"] = user_id
     if sandbox_type and sandbox_type != "none":
         metadata["sandbox_type"] = sandbox_type
 
@@ -2700,6 +2825,10 @@ def build_stream_config(
     metadata. This is a diagnostic key, not the contract-scoped `approval_policy`
     key (see above), so it is safe to stamp trace-wide.
 
+    Also records `dcode_idle_compaction` and `dcode_idle_compaction_tokens` from
+    the resolved history setting so traces can be filtered by whether idle
+    compaction is configured, independently of whether it actually runs.
+
     Also records `dcode_term_program` from `TERM_PROGRAM` when that is non-empty
     after stripping, so traces are groupable by launch environment (e.g.
     "iTerm.app", "vscode", "Apple_Terminal"). Blank values are treated as unset
@@ -2755,6 +2884,16 @@ def build_stream_config(
     # Mark auto-approve ("YOLO") runs so they are filterable in trace metadata.
     if auto_approve:
         metadata["dcode_auto_approve"] = True
+
+    from deepagents_code.config_manifest import get_option
+    from deepagents_code.configuration.resolver import get_config_resolver
+
+    idle_option = get_option("history.idle_compaction_tokens")
+    idle_threshold = get_config_resolver().get(idle_option).value if idle_option else 0
+    metadata["dcode_idle_compaction"] = (
+        isinstance(idle_threshold, int) and idle_threshold > 0
+    )
+    metadata["dcode_idle_compaction_tokens"] = idle_threshold
 
     if skill_name:
         metadata["ls_skill_name"] = skill_name
@@ -4547,11 +4686,11 @@ def is_yolo_switcher_enabled() -> bool:
 
 
 def is_openai_prompt_cache_key_enabled() -> bool:
-    """Return whether OpenAI model calls should carry a per-thread cache key.
+    """Return whether OpenAI model calls should carry a per-install cache key.
 
     Resolves the `models.openai_prompt_cache_key` option from env/`config.toml`,
     defaulting to enabled. When disabled, `ConfigurableModelMiddleware` stops
-    injecting the thread ID as an OpenAI `prompt_cache_key` (a user-supplied key
+    injecting its per-install OpenAI `prompt_cache_key` (a user-supplied key
     is still forwarded). This is the opt-out for OpenAI-compatible endpoints that
     reject unknown request fields.
     """
@@ -4559,6 +4698,24 @@ def is_openai_prompt_cache_key_enabled() -> bool:
     from deepagents_code.configuration.resolver import get_config_resolver
 
     option = get_option("models.openai_prompt_cache_key")
+    if option is None:
+        return True
+    resolved = get_config_resolver().get(option)
+    _emit_ranked_diagnostics(option, resolved)
+    return bool(resolved.value)
+
+
+def is_git_attribution_enabled() -> bool:
+    """Return whether traces may be labeled with the checkout the agent changed.
+
+    Resolves the `tracing.git_attribution` option from env/`config.toml`,
+    defaulting to enabled. When disabled, the agent omits `GitTraceMiddleware`,
+    so no git inspection subprocesses run around tool calls.
+    """
+    from deepagents_code.config_manifest import _emit_ranked_diagnostics, get_option
+    from deepagents_code.configuration.resolver import get_config_resolver
+
+    option = get_option("tracing.git_attribution")
     if option is None:
         return True
     resolved = get_config_resolver().get(option)
@@ -4689,7 +4846,7 @@ _DEFAULT_AUTO_CLASSIFIER_MODELS = {
     "google_genai": "google_genai:gemini-3.8-flash",
     "google_vertexai": "google_vertexai:gemini-3.8-flash",
     "openai": "openai:gpt-5.6-luna",
-    "openai_codex": "openai_codex:gpt-5.6-luna",
+    "openai_codex": "openai_codex:gpt-6-luna",
 }
 
 
@@ -4809,14 +4966,15 @@ def configure_langsmith_secret_redaction() -> bool:
             return False
 
         from langsmith import Client, configure
-        from langsmith.anonymizer import create_secret_anonymizer
+
+        from deepagents_code._trace_redaction import create_cached_secret_anonymizer
 
         api_key = _resolve_env_var_from(
             env,
             "LANGSMITH_API_KEY",
         ) or _resolve_env_var_from(env, "LANGCHAIN_API_KEY")
         api_url = _tracing_endpoint_from(env)
-        kwargs: dict[str, Any] = {"anonymizer": create_secret_anonymizer()}
+        kwargs: dict[str, Any] = {"anonymizer": create_cached_secret_anonymizer()}
         if api_key:
             kwargs["api_key"] = api_key
         if api_url:
@@ -5296,6 +5454,46 @@ class LangSmithProjectNotFoundError(LangSmithApiError):
     """
 
 
+class LangSmithPermissionError(LangSmithApiError):
+    """The LangSmith API key cannot read projects (lookup returned 403).
+
+    A key can have permission to write traces but not to read projects.
+    The trace URL cannot be resolved with such a key.
+    """
+
+
+_LANGSMITH_REJECTED_STATUSES = frozenset({401, 403})
+"""HTTP statuses that reject the API key itself and are cached per session."""
+
+
+def _langsmith_http_status(exc: BaseException) -> int | None:
+    """Find the HTTP status code behind a LangSmith SDK error.
+
+    The SDK raises its own exception types while it handles the HTTP error
+    from `requests`/`httpx`, so the response is on an exception further down
+    the `__cause__`/`__context__` chain, not on `exc` itself.
+
+    Args:
+        exc: Exception raised by the LangSmith SDK.
+
+    Returns:
+        The HTTP status code, or `None` when no exception in the chain has a
+            response (for example, a connection error).
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        # Do not test `response` for truthiness: `requests.Response` is falsy
+        # for 4xx/5xx statuses.
+        response = getattr(current, "response", None)
+        status = getattr(response, "status_code", None)
+        if isinstance(status, int):
+            return status
+        current = current.__cause__ or current.__context__
+    return None
+
+
 def _is_langsmith_not_found(exc: Exception) -> bool:
     """Whether a LangSmith SDK error indicates the project does not exist.
 
@@ -5307,6 +5505,104 @@ def _is_langsmith_not_found(exc: Exception) -> bool:
     except ImportError:
         return False
     return isinstance(exc, LangSmithNotFoundError)
+
+
+def _is_langsmith_user_error(exc: Exception) -> bool:
+    """Whether a LangSmith SDK error reports a client configuration problem.
+
+    Returns:
+        `True` for a `LangSmithUserError`, `False` otherwise.
+    """
+    try:
+        from langsmith.utils import LangSmithUserError
+    except ImportError:
+        return False
+    return isinstance(exc, LangSmithUserError)
+
+
+def _rejected_lookup_error(status: int, exc: Exception) -> LangSmithApiError:
+    """Build the typed error for a lookup that the server rejected (401/403).
+
+    Args:
+        status: HTTP status of the rejected request.
+        exc: Exception raised by the LangSmith SDK.
+
+    Returns:
+        `LangSmithPermissionError` for a 403, `LangSmithApiError` otherwise.
+    """
+    msg = str(exc) or repr(exc)
+    # The SDK raises `LangSmithUserError` for a 403 caused by an org-scoped
+    # key without a workspace ID. Its message tells the user what to set, so
+    # do not report it as a missing permission.
+    if status == 403 and not _is_langsmith_user_error(exc):  # noqa: PLR2004  # HTTP Forbidden
+        return LangSmithPermissionError(msg)
+    return LangSmithApiError(msg)
+
+
+def _lookup_failure(project_name: str, exc: Exception) -> LangSmithApiError:
+    """Log a failed project lookup and convert it to a typed error.
+
+    A 401 or 403 is an expected configuration problem, so it gets one log
+    line. Other failures keep the full traceback for diagnosis.
+
+    Args:
+        project_name: LangSmith project name that was looked up.
+        exc: Exception raised by the LangSmith SDK.
+
+    Returns:
+        The typed error to raise from `exc`.
+    """
+    status = _langsmith_http_status(exc)
+    if status in _LANGSMITH_REJECTED_STATUSES:
+        logger.debug(
+            "LangSmith project lookup for '%s' failed with HTTP %d",
+            project_name,
+            status,
+        )
+        return _rejected_lookup_error(status, exc)
+    logger.debug(
+        "Could not fetch LangSmith project URL for '%s'",
+        project_name,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    msg = str(exc) or repr(exc)
+    if _is_langsmith_not_found(exc):
+        return LangSmithProjectNotFoundError(msg)
+    return LangSmithApiError(msg)
+
+
+def _raise_cached_lookup_error(cache_key: tuple[str | None, ...]) -> None:
+    """Re-raise a fresh copy of a rejection for the same lookup configuration."""
+    if _langsmith_url_error_cache is None:
+        return
+    cached_key, cached_error = _langsmith_url_error_cache
+    if cached_key == cache_key:
+        raise type(cached_error)(*cached_error.args) from cached_error.__cause__
+
+
+def _configured_project_url(project_name: str) -> str | None:
+    """Return the project URL set in the environment for `project_name`.
+
+    The URL applies only to the project named by the same environment, so a
+    user who switches to another project does not get links to the wrong one.
+
+    Args:
+        project_name: LangSmith project name being resolved.
+
+    Returns:
+        The configured URL, or `None` when unset, invalid, or for another
+            project.
+    """
+    from deepagents_code._env_vars import LANGSMITH_PROJECT, LANGSMITH_PROJECT_URL
+
+    environ = active_environment()
+    url = environ.get(LANGSMITH_PROJECT_URL, "").strip()
+    if not url or environ.get(LANGSMITH_PROJECT) != project_name:
+        return None
+    if not is_http_url(url):
+        logger.warning("Ignoring %s: not an http(s) URL", LANGSMITH_PROJECT_URL)
+        return None
+    return url
 
 
 def _assemble_langsmith_thread_url(project_url: str, thread_id: str) -> str:
@@ -5327,7 +5623,13 @@ def fetch_langsmith_project_url_or_raise(project_name: str) -> str:
     """Fetch the LangSmith project URL, raising on any failure.
 
     Successful results are cached at module level so repeated calls do not
-    make additional network requests.
+    make additional network requests. A 401 or 403 is also cached for the
+    same project, API key, endpoint, and workspace settings and is re-raised
+    without a network call. Changing these settings allows a fresh lookup.
+    Timeouts and network errors are not cached.
+
+    When the environment sets the project URL for this project
+    (`DEEPAGENTS_CODE_LANGSMITH_PROJECT_URL`), it is returned without a lookup.
 
     The network call runs in a daemon thread with a hard timeout of
     `_LANGSMITH_URL_LOOKUP_TIMEOUT_SECONDS`, so this function blocks the
@@ -5343,16 +5645,36 @@ def fetch_langsmith_project_url_or_raise(project_name: str) -> str:
         LangSmithImportError: `langsmith` is not installed.
         LangSmithLookupTimeoutError: lookup exceeded the hard timeout.
         LangSmithProjectNotFoundError: the project does not exist yet (404).
+        LangSmithPermissionError: the API key cannot read projects (403).
         LangSmithApiError: the SDK call raised (auth, network, etc.);
             wraps the original exception in `__cause__`.
-    """
-    global _langsmith_url_cache  # noqa: PLW0603  # Module-level cache requires global statement
+    """  # noqa: DOC502 - subclasses are built by `_lookup_failure`
+    global _langsmith_url_cache, _langsmith_url_error_cache  # noqa: PLW0603  # Module-level caches require global statement
 
+    if configured := _configured_project_url(project_name):
+        return configured
     if _langsmith_url_cache is not None:
         cached_name, cached_url = _langsmith_url_cache
         if cached_name == project_name:
             return cached_url
         # Different project name — fall through to fetch.
+
+    from deepagents_code.model_config import resolve_env_var
+
+    # Explicit api_key because Client() reads os.environ directly
+    # and doesn't know about the DEEPAGENTS_CODE_ prefix.
+    api_key = (
+        resolve_env_var("LANGSMITH_API_KEY") or resolve_env_var("LANGCHAIN_API_KEY")
+    ) or ""
+    cache_key = (
+        project_name,
+        api_key,
+        os.environ.get("LANGSMITH_ENDPOINT"),
+        os.environ.get("LANGCHAIN_ENDPOINT"),
+        os.environ.get("LANGSMITH_WORKSPACE_ID"),
+        os.environ.get("LANGCHAIN_WORKSPACE_ID"),
+    )
+    _raise_cached_lookup_error(cache_key)
 
     try:
         from langsmith import Client
@@ -5372,13 +5694,6 @@ def fetch_langsmith_project_url_or_raise(project_name: str) -> str:
     def _lookup_url() -> None:
         nonlocal result, lookup_error
         try:
-            from deepagents_code.model_config import resolve_env_var
-
-            # Explicit api_key because Client() reads os.environ directly
-            # and doesn't know about the DEEPAGENTS_CODE_ prefix.
-            api_key = resolve_env_var("LANGSMITH_API_KEY") or resolve_env_var(
-                "LANGCHAIN_API_KEY"
-            )
             project = Client(api_key=api_key).read_project(project_name=project_name)
             result = project.url or None
         except Exception as exc:  # noqa: BLE001  # LangSmith SDK error types are not stable
@@ -5402,19 +5717,10 @@ def fetch_langsmith_project_url_or_raise(project_name: str) -> str:
         raise LangSmithLookupTimeoutError(msg)
 
     if lookup_error is not None:
-        logger.debug(
-            "Could not fetch LangSmith project URL for '%s'",
-            project_name,
-            exc_info=(
-                type(lookup_error),
-                lookup_error,
-                lookup_error.__traceback__,
-            ),
-        )
-        msg = str(lookup_error) or repr(lookup_error)
-        if _is_langsmith_not_found(lookup_error):
-            raise LangSmithProjectNotFoundError(msg) from lookup_error
-        raise LangSmithApiError(msg) from lookup_error
+        error = _lookup_failure(project_name, lookup_error)
+        if _langsmith_http_status(lookup_error) in _LANGSMITH_REJECTED_STATUSES:
+            _langsmith_url_error_cache = (cache_key, error)
+        raise error from lookup_error
 
     if not result:
         # SDK returned a project with an empty URL — treat as an API anomaly.
@@ -5483,7 +5789,11 @@ def get_cached_langsmith_thread_url(thread_id: str) -> str | None:
         otherwise `None`.
     """
     project_name = get_langsmith_project_name()
-    if not project_name or _langsmith_url_cache is None:
+    if not project_name:
+        return None
+    if configured := _configured_project_url(project_name):
+        return _assemble_langsmith_thread_url(configured, thread_id)
+    if _langsmith_url_cache is None:
         return None
 
     cached_name, cached_url = _langsmith_url_cache
@@ -5493,9 +5803,10 @@ def get_cached_langsmith_thread_url(thread_id: str) -> str | None:
 
 
 def reset_langsmith_url_cache() -> None:
-    """Reset the LangSmith URL cache (for testing)."""
-    global _langsmith_url_cache  # noqa: PLW0603  # Module-level cache requires global statement
+    """Reset the LangSmith URL cache and cached 401/403 rejections (for testing)."""
+    global _langsmith_url_cache, _langsmith_url_error_cache  # noqa: PLW0603  # Module-level caches require global statement
     _langsmith_url_cache = None
+    _langsmith_url_error_cache = None
 
 
 def get_default_coding_instructions() -> str:
@@ -5645,69 +5956,14 @@ def detect_provider(model_name: str) -> str | None:
     return None
 
 
-def _expand_allowed_entry(entry: str) -> list[str]:
-    """Resolve one `models.allowed` entry to the model specs it admits.
-
-    An exact `provider:model` entry yields itself. A `provider:*` wildcard
-    yields the provider's discovered model lineup (registry discovery merged
-    with the config's explicit list), read before allowlist filtering:
-    `get_available_models` applies this policy itself, so calling it here
-    would recurse.
-
-    Args:
-        entry: One entry from `ModelConfig.allowed_models`.
-
-    Returns:
-        Exact specs the entry contributes as default candidates, empty when a
-        wildcarded provider has no discovered or configured models.
-    """
-    if not entry.endswith(":*"):
-        return [entry]
-    provider = entry[:-2]
-    from deepagents_code.model_config import get_discovered_models
-
-    return [f"{provider}:{model}" for model in get_discovered_models(provider)]
-
-
 def _get_default_model_spec() -> str:
-    """Get default model specification based on available credentials.
-
-    Checks in order:
-
-    1. `[models].default` in config file (user's intentional preference).
-    2. `[models].recent` in config file (last `/model` switch).
-    3. When `models.allowed` is active, the first entry in it whose provider
-       does not have a definitively missing credential. A `provider:*` entry
-       expands to the provider's discovered models rather than being a
-       selectable candidate itself. Steps 1 and 2 are skipped with a warning
-       when the stored value is outside the policy, and step 4 is never
-       reached -- a policy declares the whole candidate set.
-    4. Auto-detection based on available API credentials.
-
-    Returns:
-        Model specification in `provider:model` format.
+    """Return the saved default or recent model permitted by model policy.
 
     Raises:
-        NoCredentialsConfiguredError: If no credentials are configured for any
-            of the auto-detectable providers. Callers may catch this to defer
-            startup and prompt for credentials interactively.
-        NoAllowedModelCredentialsError: If `models.allowed` is active and no
-            model in it has usable credentials. A `NoCredentialsConfiguredError`
-            subclass, but callers should report it rather than silently retry:
-            only a credential for an allowlisted provider can resolve it.
-        ModelNotAllowedError: If `models.allowed` is active but empty, so no
-            model can be resolved. Unlike the error above this is **not**
-            recoverable by adding credentials, so the deferred-start path must
-            not treat it as a prompt-for-credentials signal.
+        NoModelConfiguredError: If no permitted model has been selected yet.
+        ModelNotAllowedError: If `models.allowed` permits no models.
     """  # noqa: DOC502 - `ModelNotAllowedError` propagates from `ModelConfig.policy_error`
-    from deepagents_code.model_config import (
-        ModelConfig,
-        ModelSpec,
-        NoAllowedModelCredentialsError,
-        NoCredentialsConfiguredError,
-        ProviderAuthState,
-        get_provider_auth_status,
-    )
+    from deepagents_code.model_config import ModelConfig, NoModelConfiguredError
 
     config = ModelConfig.load()
     for label, candidate in (
@@ -5723,68 +5979,16 @@ def _get_default_model_spec() -> str:
                 candidate,
             )
 
-    if config.allowed_models is not None:
-        if not config.allowed_models:
-            # No spec to name -- the user asked for nothing in particular, so
-            # `policy_error(None)` reports the empty policy rather than
-            # inventing a placeholder spec the user never typed.
-            deny_all = config.policy_error(None)
-            if deny_all is not None:
-                raise deny_all
-        # A `provider:*` wildcard cannot be selected itself -- no model is
-        # named -- but every configured model it admits is a candidate in the
-        # provider's declaration order.
-        candidates = [
-            spec
-            for entry in config.allowed_models
-            for spec in _expand_allowed_entry(entry)
-        ]
-        for candidate in candidates:
-            parsed = ModelSpec.parse(candidate)
-            auth = get_provider_auth_status(parsed.provider)
-            # Only a definitively missing credential disqualifies a candidate.
-            # UNKNOWN covers remote no-auth providers (e.g., a LAN/hosted
-            # Ollama endpoint) that may not require auth at all; rejecting
-            # them here would block startup even though create_model()
-            # deliberately permits that state.
-            if auth.state is not ProviderAuthState.MISSING:
-                return candidate
-        if not candidates:
-            # Every entry is a wildcard for a provider with no discoverable
-            # models, so there is nothing to credential.
-            allowed = ", ".join(config.allowed_models)
-            msg = (
-                "No discoverable models match models.allowed "
-                f"({allowed}). Name an exact provider:model spec or configure "
-                "models for a wildcarded provider."
-            )
-            raise NoAllowedModelCredentialsError(msg)
-        allowed = ", ".join(candidates)
-        msg = (
-            "No credentials are configured for any model in models.allowed. "
-            f"Add credentials for one of: {allowed}."
-        )
-        raise NoAllowedModelCredentialsError(msg)
-
-    # `is True` deliberately excludes `ProviderAuthState.UNKNOWN` (which maps
-    # to `as_legacy_bool() -> None`). For the three explicit-credential
-    # providers below, an UNKNOWN result means we cannot prove auth works, so
-    # we fall through rather than pick an unverifiable default. If an
-    # implicit-auth provider (e.g., Vertex ADC) is added to this fallback
-    # list, switch to checking `state` against the relevant
-    # `ProviderAuthState` members directly.
-    if get_provider_auth_status("openai").as_legacy_bool() is True:
-        return "openai:gpt-5.6-terra"
-    if get_provider_auth_status("anthropic").as_legacy_bool() is True:
-        return "anthropic:claude-opus-5"
-    if get_provider_auth_status("google_genai").as_legacy_bool() is True:
-        return "google_genai:gemini-3.1-pro-preview"
+    if config.allowed_models == ():
+        deny_all = config.policy_error(None)
+        if deny_all is not None:
+            raise deny_all
 
     msg = (
-        "No credentials configured. Please set one of: "
-        "ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY"
+        "No model configured. Choose one with /model in an interactive session, "
+        "pass --model provider:model, or save one with --default-model provider:model."
     )
-    raise NoCredentialsConfiguredError(msg)
+    raise NoModelConfiguredError(msg)
 
 
 _OPENROUTER_APP_URL = "https://pypi.org/project/deepagents-code/"
@@ -6834,6 +7038,9 @@ def create_model(
         >>> model = create_model("gpt-5.5")  # Auto-detects openai
         >>> model = create_model()  # Uses environment defaults
     """  # noqa: DOC502 - `ModelNotAllowedError` propagates from `require_model_allowed`
+    # A model is how this process starts traced runs, so none may exist before
+    # a deferred redacting client is installed.
+    ensure_langsmith_secret_redaction()
     from deepagents_code.model_config import (
         IMPLICIT_AUTH_PROVIDERS,
         ModelConfig,
@@ -7001,6 +7208,14 @@ def create_model(
     )
     if bind_preserved_thinking:
         _apply_anthropic_thinking_binding(provider, model_name, kwargs)
+    if (
+        provider == "openrouter"
+        and model_name.startswith("anthropic/")
+        and "cache_control" not in kwargs
+    ):
+        model_kwargs = dict(kwargs.get("model_kwargs") or {})
+        model_kwargs.setdefault("cache_control", {"type": "ephemeral"})
+        kwargs["model_kwargs"] = model_kwargs
 
     # dcode's model-node middleware owns the user-visible retry budget. Resolve
     # that budget separately, then force the provider's own retry loop off so
@@ -7082,10 +7297,21 @@ def create_model(
 
     _set_configured_model_metadata(model, model_name, resolved_provider)
 
-    if provider == "anthropic":
-        from deepagents_code.model_config import ANTHROPIC_MODEL_PROFILE_FALLBACKS
+    if provider in {"anthropic", "openai", "google_genai", "openrouter"}:
+        from deepagents_code.model_config import (
+            ANTHROPIC_MODEL_PROFILE_FALLBACKS,
+            GOOGLE_GENAI_MODEL_PROFILE_FALLBACKS,
+            OPENAI_MODEL_PROFILE_FALLBACKS,
+            OPENROUTER_MODEL_PROFILE_FALLBACKS,
+        )
 
-        fallback = ANTHROPIC_MODEL_PROFILE_FALLBACKS.get(model_name)
+        fallbacks = {
+            "anthropic": ANTHROPIC_MODEL_PROFILE_FALLBACKS,
+            "openai": OPENAI_MODEL_PROFILE_FALLBACKS,
+            "google_genai": GOOGLE_GENAI_MODEL_PROFILE_FALLBACKS,
+            "openrouter": OPENROUTER_MODEL_PROFILE_FALLBACKS,
+        }[provider]
+        fallback = fallbacks.get(model_name)
         if fallback:
             upstream = getattr(model, "profile", None)
             _apply_profile_overrides(

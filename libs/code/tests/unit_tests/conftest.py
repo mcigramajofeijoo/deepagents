@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import os
 import tempfile
+import zlib
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pytest
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
     from pathlib import Path
     from unittest.mock import MagicMock
 
+    from textual.css.model import RuleSet
+    from textual.css.types import CSSLocation
     from textual.pilot import Pilot
     from textual.screen import Screen
 
@@ -79,6 +82,20 @@ def btw_app(monkeypatch: pytest.MonkeyPatch) -> tuple[DeepAgentsApp, MagicMock]:
     return app, remote
 
 
+@pytest.fixture
+def posix_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Build and run uv commands the way dcode does on POSIX hosts.
+
+    On Windows, dcode double-quotes uv arguments for cmd.exe and defers every
+    install to the user's shell. Tests that assert the `shlex.quote`-d command
+    or drive an install through the subprocess pin the host here, so they pass
+    on Windows too.
+    """
+    from deepagents_code import update_check
+
+    monkeypatch.setattr(update_check, "_is_windows", lambda: False)
+
+
 def _self_manages_update_check(request: pytest.FixtureRequest) -> bool:
     """Return whether the test owns app-startup update-check setup."""
     return request.node.get_closest_marker(_UPDATE_CHECK_SELF_MANAGED_MARK) is not None
@@ -118,6 +135,40 @@ def _warm_model_caches() -> Generator[None]:
             os.environ.pop(discovery_var, None)
         else:
             os.environ[discovery_var] = original
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _share_css_parse_cache() -> Generator[None]:
+    """Share parsed Textual CSS across every `App` a worker boots.
+
+    Textual caches parsed rules per `Stylesheet`, so each `run_test()` re-parses
+    the app's CSS from scratch; across ~1,600 app boots that was ~18% of suite
+    wall time. Keying on the stylesheet variables keeps theme changes correct.
+    """
+    from textual.css.stylesheet import Stylesheet
+
+    original = Stylesheet._parse_rules
+    cache: dict[tuple[object, ...], list[RuleSet]] = {}
+
+    def _parse_rules(
+        self: Stylesheet,
+        css: str,
+        read_from: CSSLocation,
+        is_default_rules: bool = False,
+        tie_breaker: int = 0,
+        scope: str = "",
+    ) -> list[RuleSet]:
+        variables = tuple(sorted(self._variables.items()))
+        key = (css, read_from, is_default_rules, tie_breaker, scope, variables)
+        if key not in cache:
+            cache[key] = original(
+                self, css, read_from, is_default_rules, tie_breaker, scope
+            )
+        return cache[key]
+
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(Stylesheet, "_parse_rules", _parse_rules)
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -192,10 +243,35 @@ def _clear_langsmith_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Each test that *needs* LangSmith variables should set them explicitly via
     `monkeypatch.setenv` or `patch.dict("os.environ", ...)`.
+
+    The launch snapshot is reset to "all unset" too. Pytest collection can
+    bootstrap `credentials` before this fixture runs, which captures the
+    developer's shell LangSmith exports. A reload then restores those exports
+    over the values a test sets, so a test can pass in CI and fail locally.
+
+    The user snapshot gets the same reset. Before bootstrap runs it is empty,
+    which the server-launch encoder rejects, so tests that spawn the server
+    would otherwise depend on whether an earlier test bootstrapped config.
+
+    The deferred-redaction flags are reset as well. A test that runs `cli_main`
+    down the TUI path sets them, and a later `create_model` would then install
+    the redacting client under that test's patched config.
     """
     import deepagents_code.config as config_mod
 
     monkeypatch.setattr(config_mod, "_reconciled_tracing_values", {})
+    monkeypatch.setattr(config_mod._bootstrap_state, "defer_redaction", False)
+    monkeypatch.setattr(config_mod._bootstrap_state, "redaction_pending", False)
+    monkeypatch.setattr(
+        config_mod._bootstrap_state,
+        "launch_langsmith_env",
+        config_mod._langsmith_selectors_from({}),
+    )
+    monkeypatch.setattr(
+        config_mod._bootstrap_state,
+        "user_langsmith_env",
+        config_mod._langsmith_selectors_from({}),
+    )
     for key in (
         "LANGSMITH_API_KEY",
         "LANGCHAIN_API_KEY",
@@ -226,6 +302,19 @@ def _disable_langsmith_batching(monkeypatch: pytest.MonkeyPatch) -> None:
         original_init(self, *args, **kwargs)
 
     monkeypatch.setattr(Client, "__init__", _init)
+
+
+@pytest.fixture(autouse=True)
+def _reset_langsmith_runtime_overrides() -> Iterator[None]:
+    """Remove any process-global LangSmith runtime override a test installed.
+
+    Server-graph startup installs one (see `deepagents_code._langsmith_runtime`).
+    Without a reset it leaks into every later test in the worker.
+    """
+    yield
+    from langsmith import set_runtime_overrides
+
+    set_runtime_overrides()
 
 
 @pytest.fixture(autouse=True)
@@ -483,6 +572,21 @@ def _disable_app_startup_update_checks(
         "deepagents_code.update_check.is_update_check_enabled",
         lambda: False,
     )
+
+
+@pytest.fixture(autouse=True)
+def _disable_server_prespawn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep `run_textual_cli_async` tests from spawning a real server.
+
+    Those tests stub `run_textual_app`, but the prespawn runs before it and
+    would launch a `langgraph dev` subprocess. Tests that cover the prespawn
+    patch it back themselves.
+    """
+
+    async def _no_prespawn(*_: object, **__: object) -> None:
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr("deepagents_code.main._prespawn_server", _no_prespawn)
 
 
 @pytest.fixture(autouse=True)
@@ -789,6 +893,18 @@ def _clear_kitty_kbd_probe_cache() -> None:
     supports_kitty_keyboard_protocol.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _clear_deepagents_version_cache() -> None:
+    """Reset the process-lifetime cache on the SDK version lookup.
+
+    Tests patch `resolve_sdk_version` to drive `_get_deepagents_version`, so a
+    value cached by an earlier test would mask the patch.
+    """
+    from deepagents_code.config import _get_deepagents_version
+
+    _get_deepagents_version.cache_clear()
+
+
 @pytest.fixture
 def drain_modal_commands() -> DrainModalCommands:
     """Await the confirmation continuations that slash commands detach.
@@ -855,6 +971,27 @@ def wait_for_modal() -> WaitForModal:
         raise AssertionError(msg)
 
     return _wait
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Keep only this CI shard's tests when `PYTEST_SHARD` is `INDEX/TOTAL`.
+
+    Splitting by a stable hash of the node ID (not by file) spreads the large
+    `test_app.py` module evenly across runners.
+    """
+    shard = os.environ.get("PYTEST_SHARD", "")
+    if not shard or shard == "1/1":
+        return
+    index, total = (int(part) for part in shard.split("/"))
+    selected: list[pytest.Item] = []
+    deselected: list[pytest.Item] = []
+    for item in items:
+        bucket = zlib.crc32(item.nodeid.encode()) % total
+        (selected if bucket == index - 1 else deselected).append(item)
+    config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
 
 
 @pytest.hookimpl(wrapper=True)

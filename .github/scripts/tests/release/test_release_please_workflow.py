@@ -99,10 +99,15 @@ def test_release_dispatch_precedes_release_please_maintenance() -> None:
 
     trigger = jobs["trigger-releases"]
     assert _needs(trigger) == {"detect-release-commit"}
+    # The empty-commit guard runs inside the detector, before detection, so a
+    # failed guard also blocks the dispatch.
+    detect_steps = [step.get("name") for step in jobs["detect-release-commit"]["steps"]]
+    assert detect_steps.index("Reject empty commits") < detect_steps.index(
+        "Check if release PRs were merged"
+    )
 
     guard = jobs["guard-pending-release"]
     assert _needs(guard) == {
-        "guard-empty-commit",
         "detect-release-commit",
         "trigger-releases",
     }
@@ -142,7 +147,6 @@ def test_release_dispatch_precedes_release_please_maintenance() -> None:
     # undeclared reference compares an empty string against 'success' and
     # the job skips even when release-please opened PRs.
     assert {
-        "guard-empty-commit",
         "detect-release-commit",
         "guard-pending-release",
     } <= _needs(update_lockfiles)
@@ -168,7 +172,6 @@ def test_release_dispatch_precedes_release_please_maintenance() -> None:
     # ancestors must be listed, while `update-lockfiles` itself stays a
     # sequencing-only need whose result the `if:` does not check.
     assert {
-        "guard-empty-commit",
         "detect-release-commit",
         "guard-pending-release",
         "update-lockfiles",
@@ -187,7 +190,6 @@ def test_release_please_condition_fails_closed() -> None:
     def runs(
         skip: str,
         *,
-        empty_commit: str = "success",
         detect: str = "success",
         guard: str = "success",
         cancelled: bool = False,
@@ -195,7 +197,6 @@ def test_release_please_condition_fails_closed() -> None:
         return _evaluate(
             release_please_if,
             {
-                "needs.guard-empty-commit.result": empty_commit,
                 "needs.detect-release-commit.result": detect,
                 "needs.guard-pending-release.result": guard,
                 "needs.guard-pending-release.outputs.skip": skip,
@@ -210,7 +211,6 @@ def test_release_please_condition_fails_closed() -> None:
     # Unset/empty skip (crash, hard timeout) must not look like all-clear.
     assert not runs("")
     # Direct deps: any red/skipped guardian job fails closed.
-    assert not runs("false", empty_commit="failure")
     assert not runs("false", detect="failure")
     assert not runs("false", guard="failure")
     assert not runs("false", guard="skipped")
@@ -233,7 +233,6 @@ def test_update_lockfiles_condition_fails_closed() -> None:
     def runs(
         prs: str,
         *,
-        empty_commit: str = "success",
         detect: str = "success",
         guard: str = "success",
         release_please: str = "success",
@@ -242,7 +241,6 @@ def test_update_lockfiles_condition_fails_closed() -> None:
         return _evaluate(
             update_lockfiles_if,
             {
-                "needs.guard-empty-commit.result": empty_commit,
                 "needs.detect-release-commit.result": detect,
                 "needs.guard-pending-release.result": guard,
                 "needs.release-please.result": release_please,
@@ -261,13 +259,60 @@ def test_update_lockfiles_condition_fails_closed() -> None:
     # look like work to do.
     assert not runs("")
     # Direct deps: any red guardian job fails closed.
-    assert not runs("[1]", empty_commit="failure")
     assert not runs("[1]", detect="failure")
     assert not runs("[1]", guard="failure")
     assert not runs("[1]", guard="skipped")
     assert not runs("[1]", release_please="failure")
     assert not runs("[1]", release_please="skipped")
     assert not runs("[1]", cancelled=True)
+
+
+def test_label_release_prs_condition_fails_closed() -> None:
+    """Labeling runs beside `update-lockfiles` with the same skip-gate handling.
+
+    It needs `release-please`, so it inherits the same implicit-success()
+    poison from the legitimately-skipped `trigger-releases` (#5161/#5169).
+    """
+    label_if = _condition(_load_workflow()["jobs"]["label-release-prs"])
+
+    def runs(
+        prs: str,
+        *,
+        detect: str = "success",
+        guard: str = "success",
+        release_please: str = "success",
+        cancelled: bool = False,
+    ) -> bool:
+        return _evaluate(
+            label_if,
+            {
+                "needs.detect-release-commit.result": detect,
+                "needs.guard-pending-release.result": guard,
+                "needs.release-please.result": release_please,
+                "needs.release-please.outputs.prs": prs,
+            },
+            cancelled=cancelled,
+        )
+
+    assert runs('[{"number": 1, "title": "release(deepagents): 1.0.0"}]')
+    assert not runs("[]")
+    assert not runs("")
+    assert not runs("[1]", detect="failure")
+    assert not runs("[1]", guard="failure")
+    assert not runs("[1]", guard="skipped")
+    assert not runs("[1]", release_please="failure")
+    assert not runs("[1]", release_please="skipped")
+    assert not runs("[1]", cancelled=True)
+
+
+def test_label_release_prs_is_off_the_lockfile_path() -> None:
+    """Labeling must not sit between release-please and the lockfile refresh."""
+    jobs = _load_workflow()["jobs"]
+    assert "label-release-prs" not in _needs(jobs["update-lockfiles"])
+    assert "label-release-prs" not in _needs(jobs["dispatch-release-notes-check"])
+    assert not any(
+        step.get("name") == "Label release PRs" for step in jobs["release-please"]["steps"]
+    )
 
 
 def test_dispatch_release_notes_check_condition_fails_closed() -> None:
@@ -283,7 +328,6 @@ def test_dispatch_release_notes_check_condition_fails_closed() -> None:
     def runs(
         prs: str,
         *,
-        empty_commit: str = "success",
         detect: str = "success",
         guard: str = "success",
         release_please: str = "success",
@@ -292,7 +336,6 @@ def test_dispatch_release_notes_check_condition_fails_closed() -> None:
         return _evaluate(
             dispatch_if,
             {
-                "needs.guard-empty-commit.result": empty_commit,
                 "needs.detect-release-commit.result": detect,
                 "needs.guard-pending-release.result": guard,
                 "needs.release-please.result": release_please,
@@ -307,7 +350,6 @@ def test_dispatch_release_notes_check_condition_fails_closed() -> None:
     assert not runs("[]")
     assert not runs("")
     # Red ancestors fail closed even though the condition starts with always().
-    assert not runs("[1]", empty_commit="failure")
     assert not runs("[1]", detect="failure")
     assert not runs("[1]", guard="failure")
     assert not runs("[1]", guard="skipped")
@@ -324,14 +366,12 @@ def test_guard_condition_fails_closed() -> None:
         release_commit: str,
         trigger: str,
         *,
-        empty_commit: str = "success",
         detect: str = "success",
         cancelled: bool = False,
     ) -> bool:
         return _evaluate(
             guard_if,
             {
-                "needs.guard-empty-commit.result": empty_commit,
                 "needs.detect-release-commit.result": detect,
                 "needs.detect-release-commit.outputs.release-commit": release_commit,
                 "needs.trigger-releases.result": trigger,
@@ -354,8 +394,6 @@ def test_guard_condition_fails_closed() -> None:
     assert not runs("false", "skipped", cancelled=True)
     # `!cancelled()` disables implicit needs-gating, so upstream failures have to
     # be rejected explicitly or a red dependency would be silently tolerated.
-    assert not runs("false", "skipped", empty_commit="failure")
-    assert not runs("false", "skipped", empty_commit="skipped")
     assert not runs("false", "skipped", detect="failure")
     assert not runs("true", "success", detect="failure")
 

@@ -1,474 +1,182 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:bc742e16f566ae73fa2299a0a5bcaaf4aaf7df034b23a39cfd962a19da9605ce",
+  "pageVersion": "sha256:ba4d21fe9fe7a31a08f72c0bc45b84f9574a714c6da427e3f683578c19a07149",
   "claims": [
     {
-      "id": "claim_b860017fa5f346a49d6b77c4a8615a9c",
-      "statement": "libs/evals is an end-to-end behavioral evaluation suite for the Deep Agents SDK: each eval runs an agent against a real LLM, captures the full trajectory (tool calls, file mutations, final response), and scores it on correctness and efficiency.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/README.md#L1-L8",
-          "version": "repo-lines-v1:sha256:93400fda4e778c601bba64b213e8883ebca8ea4c1fee989f661ee59d812f1a1b:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODI5MWY4Y2ZjM2RjNDJiY2U4M2EzY2JiN2M2YWU1MDlkNmQyYzgyNjYzYjdhNWM4YzU3YTFiNTk3OGM5ZjkxNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTNjNjAyZTY2NDU5ZDJlMjI1NDI2NzM3ZWQ1NDY2NTJjM2QzMWQyM2Q0OTdjYjU1YWM2ODQ1MWU4MmU4ZjU0ZiJ9"
-        }
-      ]
-    },
-    {
-      "id": "claim_6503b50f82a147c9a67a813f73b84373",
-      "statement": "Evals score the agent trajectory with a two-tier assertion model: TrajectoryScorer.success(...) assertions are correctness checks that hard-fail the test, while .expect(...) assertions are trajectory-shape efficiency expectations that are logged but never fail the test.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/CONTRIBUTING.md#L32-L49",
-          "version": "repo-lines-v1:sha256:7dd54cc5fa97eb403cd44ef55f827bd7eed17f035b28745f4b469f3c5a4f36ae:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ2Y2YzMzYzNjM5MTViMmNhZjBkYzNkZDk3MDJlZTRhMmFjMjc3N2QyOGM5OTRmMzNlNDRmNGZkZmRhNDVlZWYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ3YzA2YzU2MWQ1YzMyNzM0MzY4NTI2OGE0NmIzMzkxZjM5OThlZWU4OTBkMmJlNTFmMGQyMWNjNGE1M2FlNmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE3YTc1Nzk5NzNmYjA2ZGRhM2Y3MGMyMjM4YzQyMWExZTAwZGYxNjIxMGRlMzI2N2RiYWE4MmQ0YWU2ZjYyZGEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY0NTlhMjdjYTE5ZDAzMWQwY2U4NWEyNTExNTliODdhMTI5NjE3YmQ3MjI2MzcwMzJiZTdmYTg0YTY5MzJiZjQifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_3759478f493f4482b4f77e52e7ea8edc",
-      "statement": "Each eval is a @pytest.mark.langsmith test function that accepts a model fixture, builds the agent with create_deep_agent(...), and drives it via run_agent(...) passing a TrajectoryScorer.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/CONTRIBUTING.md#L86-L108",
-          "version": "repo-lines-v1:sha256:c034fcee5c5fb30bbddd1d4071696fa12fd24fcb9b0f231bdd00921e41546ab7:eyJzZWxlY3RlZExpbmVDb3VudCI6MjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFiMWYwZjU1OTY5YjVmZDQ5Yjc0ODBiOTI5N2NiOGQ3ZmI0YzFhMGMzY2RhZDIxNWFiMzRiZGU3OTI1OWVjYzkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ3YzA2YzU2MWQ1YzMyNzM0MzY4NTI2OGE0NmIzMzkxZjM5OThlZWU4OTBkMmJlNTFmMGQyMWNjNGE1M2FlNmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhlYjhhZWQ5ZWY5ZGJhZTY0MjAyY2EwNDEwNDlkMzUzYTYwNWE2Yjg4NzIwNmJmZjQ4MjNkNmNiZmM4NmM2MTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijk0ZmNkYzA0MDA0ZmZlNTU2OGE4ZTM2ZjhkYjcyYWFmNzYwZGI3ODcyYjg3ZTY1ZThiNzM4NWZkNzA1MGRlYmMifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_229b16f5ca0548b5beb9e74c8d3fb1d0",
-      "statement": "EVAL_CATALOG.md is auto-generated from tests/evals/ by scripts/generate_eval_catalog.py and lists every eval grouped by category; it must not be edited by hand.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/EVAL_CATALOG.md#L1-L14",
-          "version": "repo-lines-v1:sha256:9914e976c3685d047b458f4e4c4bf76666f40d1c9c66ce1cee6c787ff23d0bca:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI4NzdhMmQ0ZWEyMDAxMDNkNDJjM2UyNDk3YzhjMjZjM2M5N2MxNTJkZmU2ODViZDcwYjU0ZWYyNjVlYjkzNTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVmMjI5MTU4MmQ5YjhkMTE3N2JiNmE5YmE1MGIxZWRhODIxMWNiNjUzZmJkYzMzNmEwYjgzNTQxMjdmZTMwNzAifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_c7d3c8cc001a417ebb538eb90fd3d00d",
-      "statement": "The canonical operator interface is the deepagents-evals console script, registered as deepagents_evals.cli:main in pyproject.toml, with subcommands run, trials, aggregate, radar, catalog, model-groups, and list.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L6-L23",
-          "version": "repo-lines-v1:sha256:4e149e987305e91ce9aded5f4e150f01d4b2f42bde01031d3fd941a7c9e44cbb:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdmMWNlODlkZjFmYWIzOTcyMGY1ZTgxODg4M2Y5ZDA3OGM0YWU1MDYzYzM5YzQyOWU5ODhkZDYyM2I3YWM0ZTgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRiNjhiNDdkMzNiOWJhYTU1ZDA4Yjg1MGQzNjBkYmQ0NWMxNWVhNTlkYzdkNzFjODBkOGQwMThjNjY0OTI0NWEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE5NzU3YTEyZmU2ZWU0MGQxZjg5NzdlOTMyOWRlN2UzOTA2OGQ3NzNlY2NjMjJiNjA2OTFlYmEzN2EzMjIzMmUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImZhNTExMzY5YmY3YjBkZjM3NjFmMTY3NmUxN2EyMWFmODI2MzJiMDllNmQ5M2E0NzUwMDRjODgxZmVlY2NiMGUifQ"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L7-L14",
-          "version": "repo-lines-v1:sha256:4891eb8df796ab3b230f6731dd9ec0409445c2f0b23c9c88bbe5268617f1464b:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZDc4MGFiMTk5ZmExNDJlNmY4ODM1YWNiOTdhNTViMmUxMjljOTQ0MzFlODExYjc4YTc2MDAzMDAzYWVhNmUxYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjlkMmI2ZDQ2ZDViZGIwYTBlZjJlMGQxZGRmM2YyZjUwN2MzOGFkMzcxNzVjY2Y0ZTZkNWVlODk2ZjRlYzY3NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDA2ZjM4ZDc1NDIxYzYwZGQwMTA0ZmNkOWZmMDdmYjE0NzA5NDdiNDllOTA3NzQyNTM5YzdjMjcyNGZmZDNkNSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNWU4OWE0NmZmNWVhYzU5NjFiNmYzZjE4M2M4ZTYwMDExZTIwMWUyYjcxODhiYTQ3NGM0NTUzMzA0MWY3ZTBhMSJ9"
-        },
-        {
-          "resource": "repo://libs/evals/pyproject.toml#L57-L57",
-          "version": "repo-lines-v1:sha256:c89220ed3a6d9fa59b6f138d581e68782ef580ac6250663443f67e3356df71ed:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzg5MjIwZWQzYTZkOWZhNTliNmYxMzhkNTgxZTY4NzgyZWY1ODBhYzYyNTA2NjM0NDNmNjdlMzM1NmRmNzFlZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYzg5MjIwZWQzYTZkOWZhNTliNmYxMzhkNTgxZTY4NzgyZWY1ODBhYzYyNTA2NjM0NDNmNjdlMzM1NmRmNzFlZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTQ4MTY0NTEyN2U0MTFhYWQ2ODkxMzZmMGEzODJmMzYwODAxMTM2ZjlmZjczNzJiNmMzNjFkYTk5NmI0ODM3MyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGU1ZTRhOTFlZjI4MWQ0ODExNDUyNmZjOTliMWVmZWU3ZmQwMjgxNDc3ODlhNDVkZDgwYTM5MjQ1ZTlhZWRlZCJ9"
-        }
-      ]
-    },
-    {
-      "id": "claim_ab22edcb4506449190816b8183d36405",
-      "statement": "Most deepagents-evals subcommands accept --json for machine-readable stdout and --dry-run to print the underlying invocation without executing it.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L25-L28",
-          "version": "repo-lines-v1:sha256:7e558af5e5f412ae66883c1f597671ce6ce6823f42364a590f26b62952e323fc:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiM2VjZDIxYTUyMDIzMTZlZjExZDMzNzEwZDFkZTdmZmI4OGRiYWI2OGZhYTQ4MzI4NThhNDlhOWZmZjIzMTZjMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmJkZTk1NDgyYjZlYmRmMjdkYmIxNGM1NjY5YmE4NWM0NGJhYTYyZGQ1MGNkMTBlNGIwZWNjNDQ5NzljNThkYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2VhODdkN2Q1ZTkzY2NmNmFkYmVjYmJhOGQyYzNjNDg5ZWQ2NzU3ZjgyOTJhYTE1OGMxMWIzZWIyNjZhMDVmNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjJlZmRjZjA4MDc3NGU4ZjdlZGJjZDBlNjNmYTk2M2MwZWNiYmY1MzZmMjliZDRiMzNmYWI5ZTkxOTBiYmIzMSJ9"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L604-L605",
-          "version": "repo-lines-v1:sha256:14775812ccfa24ed53e3e847872edff3fd982aaed70e6210b340206104bc12b0:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODRmMTA4NzVhYjQ0NjI0NjE4OTlhYzA5NTRkMWM2MjQ4MWEwNWFjNmMzZjA0ODYwNDZkNTZhMGE5NzVjYTZjMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTM0Y2QzMWYzYTFiNjk1ZGMxZTk5YjJiM2JiNjQ4NmYxYTQwM2M4ODZkNDZkYTE1Njg0Yjc4M2VkNzhkNDRiYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDdkYmVlZTk5ZTE1MWQ1YzVjNjk2ZGMwNjY2M2U0MjI4NDdlOGYxNDEwNDVlOGU0NzgxODlkMzAzZWRjMzVkZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGRhZGQyYjA1N2ZiZmVlNTg0Yjg0ZWIzZjY5MDY5NTQyZTc1MDNiMTZiNDM2ZTIwZDZkYjU1NjU0MTYwODQ2MSJ9"
-        }
-      ]
-    },
-    {
-      "id": "claim_84343930b62c4d3aa59557180f2f58b4",
-      "statement": "deepagents-evals list resolves its answers from data rather than by importing the test modules: categories from deepagents_evals/categories.json, the fixed tiers baseline and hillclimb, models from the registry at .github/scripts/evals/models.py, and evals via the AST walker in scripts/generate_eval_catalog.py.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L115-L170",
-          "version": "repo-lines-v1:sha256:0934570f039b146b1e0231c47e81320870ab896007aa199ad5ce6446f7bf5e5a:eyJzZWxlY3RlZExpbmVDb3VudCI6NTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM3MTEzZTE2NzM1MTEwNzViNmNmMzkyOGE3ZjViN2JmZGVkZDVjNTk1OTg0MDViNDMzYWRkZTQ4Y2I4NDVkMDQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU0NTI2YWZkNzhlMmJiZGM0N2QwODZmNjliOTdhZjYwZTQ5MjAzZDNjNDlhMTAwMDNmNTQxNzEyODlmOTYxZTQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImM4ZTc2NWEzODJiYzJmZjNkNWRjNjIzY2ExNDA5ZTM2NDExM2Y4NTU3ZjA4ZTA3ZGE3MTAwYmZlMDAwODZmZjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjdjZjc0ODA4YmU3MjhhY2FkYmIxNzM3OGVjZDMxMjk3ZWVhZGE2MDU2NjQzZDEwNzE2YTQ4ZjkzNWQxYzEwOTUifQ"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L73-L74",
-          "version": "repo-lines-v1:sha256:007b992f84c74bfbe257310c395ac29ad6416feabb59c65697c97348dd430fab:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiY2JlZmQzMDFjNjIxZmYzYzNkYmFiYmU3ODJmMGQ1YWQ2NjRhNGQwOWJiNWM0NTQ3OTNiMzhlMzdmNTU4ZjlmZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDFjMGYyMGM3ZGJhMDE3ZmQxOTYwZjdiY2U3NTVlMDNkOGI3MWRkYmY1OTIyYzk1MWY3OWFlOWY2ZDJhMjRjMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMTQzZWJmOGM2NTUwYTVlNjZiMTI2MWJiNWY2Y2FlMDkxY2QwYjU3YTI1ZmQzZTVhNTVmMzBhYzcwMmRiNTg3ZSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYjNlMDdiMjgwOWQ2YThhNWViYmQxY2Q3Y2U3ZTljM2FhNzFlODIxYmZiNDA2MWU1YjA3ZDU4ODgwOWRjN2YwMyJ9"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L80-L83",
-          "version": "repo-lines-v1:sha256:59b474cc936db3016f1fd25f8a9c0587179502478d1ce2f5750a3dce6f194aab:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjNmMzU0OGM2ZjU1YWFiNWIwYjRjNTk0YzczODFlOWE2OWI4NjliOTk4ZWIzNmI4NDAxYTE0ZjMzMjM4OWE1ZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDcwNDYxYTQzMGY3YTYxYzhhNjkwNzIxNTQ3MzE2ZjE5ZTdjMjBlNjVkZDAwNDBiMTI4MDNlMzkzM2IyZGRlYSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZDcwNjRiNDcxOTRkNzk2ZDdlNzcwY2YxOTQ2YzI3OGM1YmUxNjg3NWE5OWJhY2IzNWI4MWYxYjg3MTljOWViZCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYmNiOTExNDkwNTI0Y2NlYjQxZmMyZjJmNzVhYzYxYmI4NzdjODFjMWFhODU5NzdmYTdhOWFmYmZkODRhZmIyMCJ9"
-        }
-      ]
-    },
-    {
-      "id": "claim_71a866b6ee244d5a94f3c30ef6a7ea7b",
-      "statement": "deepagents-evals run shells out to `uv run --group test pytest tests/evals` from libs/evals, forwarding --model and every category/tier/provider flag through to tests/evals/conftest.py.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L247-L282",
-          "version": "repo-lines-v1:sha256:f90887c72888791ec4d76cff9bed61d2829775b99dcf7b8d12fa499df00191a3:eyJzZWxlY3RlZExpbmVDb3VudCI6MzYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQxZDY3YjJkMGEyZWQ0YmJjMWY1YzYwZjljZGZlNjQyNmJjYjc4MDhiMmIyMDkzZDA3MWM5NjMzMjAyMTUxMjAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM1NTJlNDAyNzg3YWY0ZDg2OGQwNjEyYmNmYzI5MTU4MzQxZmQ3MzI2OTg3MTY5MzhkNTU3MTgzNGYxZjVmYmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImVhNzQ3YzUxNTdmZGE4MTAyYzJiNGM0Mzg1NTVmNzFjYzQwNjkzYTE5NjgzM2M4NzBmZjQyZDc5NmUyZWQzMzQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM2NDllY2U3YmYyMzQyNWQyOTM2MmNmYWY5MjQ1ZTU3NmZkMjBkMjFlMjA5YzhkOWJhZDVhYWNmZTBlYmM1MzcifQ"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L319-L342",
-          "version": "repo-lines-v1:sha256:045e15b11c33904cf824864cb2527752d9563db651bfee24a2887d7956a96ad1:eyJzZWxlY3RlZExpbmVDb3VudCI6MjQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjViZDI0OWJiZjZkY2FmYjUxMWEwZmI5MGRiMjY1ZDhkZGIzODcxZDk2MDg0ZWMzOTYyMTlmMGY5ZTUxMWE1ZjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE2MWMwNzQzZDUzNmE4MzBlZmJmZWJlZWFkMmE3NTRmNDQwNzBkYWM5YmE4MjUwOWU3NWY5OGRhMWVkYzVjYTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhjYzRhN2QxY2M3OTZhYmEzZTQ2NzIzMzI3ZjUxN2U5ZjgxMTk4MmQyNTBmMDcwMjk4NmU0YjU3NjRhZDk1ODkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM1NWQxNTk2MWJjZDBiZTU5MmYzMzdlOTZjZmU1N2JmNDY5Mzc5YTZkYTg5YWQ4YzA2NDhmZTE0MDdiNjAwMGEifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_e4bb2fdd76754cd792c747aa22f39944",
-      "statement": "The --model value may be omitted when the DEEPAGENTS_EVALS_MODEL environment variable is set; the explicit flag wins when both are set, and if neither resolves the CLI exits with a configuration error listing known model groups.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L69-L77",
-          "version": "repo-lines-v1:sha256:95d9ff1d38a6ef717623dd37dfda3b0a5349a87f860fb6a5b0527999fa16b7bb:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMGFjNjRiMjQ1ZmZjODhhNmVmYzY2NzU0MTI4YjgyMzM3NjcyOThhZGJmNzMxM2QyNTdhZWM1YTVhNGI3ZDQwOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDdjMDZjNTYxZDVjMzI3MzQzNjg1MjY4YTQ2YjMzOTFmMzk5OGVlZTg5MGQyYmU1MWYwZDIxY2M0YTUzYWU2ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTIzOTJlZDhkMDkxOTVkNGJlNDVkZmVhOWVkNTFmYmYzYWJlNmVmZWU5MDgwN2M4YjAzMTM1OWU5NTIzMzhjMCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGU4ZmIzNDIxMDNmYTVjMjQ4YjkwYjMyMTdhNmMxNDIwNzEzMGNkYWYyNTU3YzJhYjIwMDZhMTM3N2FiYjI3OCJ9"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L285-L316",
-          "version": "repo-lines-v1:sha256:bbad40463aec477ec1250d2c5e6f2f1c13fd2b41e5465b2eef92af9b984ddd55:eyJzZWxlY3RlZExpbmVDb3VudCI6MzIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNkOWJiMjE5YjJlN2IwNjllNjcyYjk3OWVmNWQyYTE3NWFkYTRhY2YyMjI3YjEzMzYwNTI5NzQ1ODQ1YzdkZWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYzFmMTg4ZjE0MmVkN2E4MjQ2ODBiMjA3MTcyYzU1MTliYzYxNGE0OGZkYTdjZjE2N2VkYjhkZGY3OTk1NmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQ0MzIzMDFmNjdhYWVlZjQyMTcyZjg0MzUwMGI2NGYyZmJkOTNmYTJiYjQwOTI3MGM0ODNlMTAwZmI0ZDZiODQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU5ZTZmODkwZDY4YzVmNDhmNTdhYjQ4ODEzOWVmN2UyMTVlNjg0MDkyOWI4YjEzODU1NjI0OTljNGIwMjdmNjcifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_2bfd40f72166498ba457296091ad3216",
-      "statement": "deepagents-evals uses four exit codes: 0 success, 1 eval failures, 2 configuration error (missing --model, registry-load failure, argparse usage error, or --check drift), and 3 no usable reports.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L82-L91",
-          "version": "repo-lines-v1:sha256:ca3d15b101c5989613109f841e609aebc91ba0d3bcb5e933d5ff9dd42bb28f1f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNmYTE2ZTRjYWM0MGIzOTRmYmI1YWFjOTc2MWU2NTljMDllMjZmZDZlNjQzMDVkNjU3NGU4NDk2NjEyNjljZDMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg1MjY5ZWIyZjBkNTg1ZDIzYTM0YjEwMDQ5MGUzZmVhMjc2YjI0YWFhMWJmM2FmOWI3NzMzOTM2ODgwOWNkODYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjYyYWJjNDYyZjY5NjM4YjNmZDMzNTc3NDRkNDBjNGE5NzE5OGZhOGQ0M2NlMDQ2MGNhZDU1MDk0YmI0N2ExZGIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU4NWQxNTRjYzk3MDVjMzYwMjk1ZmM3YWU3MTc2MGJjMmRlZGYxYWY2MmNmZDIxODI5MTliM2VhZjMyMzNlN2MifQ"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L43-L59",
-          "version": "repo-lines-v1:sha256:4432071da2cb1d3528408f70e188bce4b208ecc7238eaac0c08520b90c928648:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJjNTg1ZmI5NjEyMDc3NTY4Nzg5OTE2YTMyMjAxYTc1ZTYzYzk4Zjk2MGFlMDE5Y2U0MGQzNzkzMjMyMmVlNGMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI0ZmQ4YjUzODAzNWFjZmI2OGM3MThiOWIwMGU3OGY5ZjAyZjk0Nzg3NThmYjc2ZDlkYWQzZjAyNmE3ZGIyYmUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjllMTMwNDkxMmU3MWI2MTdhNGI4MDZhYmMzZDYxYjgzZTM1MDY3NThmZjBiYmVlYmQzZWY2MDAzMDRlOWQ3OGIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImVmOGE1OTAzOWNkMTVkNjY1ZTY3NzZiODE0YmI2MjY4ODUyZjg0YzVjY2E3YjQ4ZTg4OWQ3MzIzMzk4ODhlMTIifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_a87d1ef56da14684ac3660c30b53cb65",
-      "statement": "Because the pytest_reporter plugin rewrites pytest's session exit status to 0 even when individual evals fail, the CLI determines trial/aggregate failure from the aggregated counts.failed.mean in trials_summary.json rather than from the per-trial pytest_returncode.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L93-L93",
-          "version": "repo-lines-v1:sha256:a935535bdd16e786e10cca724627d91228257d0c97ccdc65f985259398cf4ad5:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTkzNTUzNWJkZDE2ZTc4NmUxMGNjYTcyNDYyN2Q5MTIyODI1N2QwYzk3Y2NkYzY1Zjk4NTI1OTM5OGNmNGFkNSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTkzNTUzNWJkZDE2ZTc4NmUxMGNjYTcyNDYyN2Q5MTIyODI1N2QwYzk3Y2NkYzY1Zjk4NTI1OTM5OGNmNGFkNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDJiYzg5MWRjNjY0NTU1YzUwNmIyMzgzZjQ4MTljNDkzMDVmNjc5ZDNjMjliODNkZGFlZmQwNmUwYjQwMjhiMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTFmZjVmMTZjYWM1NTRkZWQ0MTM3MGQ1MDVmYzVlZTg0ZDlmMTk5NDQ5YTA0Njk4MWIzN2M2ZDhiMTNkNzBlOCJ9"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L487-L505",
-          "version": "repo-lines-v1:sha256:cdf3d805ef59dc9954c91c8b3517cf06cf2aab712f0473e0821f3740cbd7ce2e:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU3NGE4NWU2YWM1MzE5ZjgxMGE1ZGIwYTNlYjJkZjViOGY3MzRiMTU0MmMzZGNiNmI1ZmEyODhlZDNlYmQxOTUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkzZTZlODNjMzUxNTgyMTJlMjE1ODg1ZTJiODJkMTk4ZDBlNjA2Y2Y5NTA4NjFlM2U2OTRiMWFkMTJkMTNhMTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQ0M2U0Nzg0ZmFkM2U2MDg0ZTM0ZjRiODQwNmUxNWU2ODNjZTVlNDk1YjVmOGY0YjQyMTY1YWJhZmU1M2MxMDYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjU1MmY3ZTA4NjIwMzIwZjcyMjE3ZWRhNjk2ZGE3ZDVjMDAzODBjNDcyYjliMDQwNjYyZDE1NjNkNTk2YWZmY2MifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_47847630853f418ba8c8ec97a585bf0e",
-      "statement": "The Makefile targets `make evals MODEL=...` and `make evals-trials MODEL=... TRIALS=...` remain the form CI invokes, fail fast when required variables are unset, and are a subset of the console script whose flags they mirror.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L190-L192",
-          "version": "repo-lines-v1:sha256:dc458b4a76282f62fc29e74f794872d79e3fad33be5b2dd352ddcf8372a9f639:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWRmZDg3MDBjNjM5MDM5NDMzMTZjZjg0NTBhYmVmYzUxMzc3Yzg2YmNhNzdjZWRhZmJjOGNhOGRmMWUzNjI2OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjRhYmU4ZTQ3OTY1ZWFkMDQyZmJlYWUyNTAzYmFlN2MwOWRmNjZhYzVlY2VkMjU5MjM2N2YwMmEwZTRjY2NhYyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNmY5MDUzZmMyNjE0MWFjYzNiNGM5YWFiYTNkMmZmMzAzZTVlMDBhMWQxMTFhMmJjNzhmMzBlNTdhMDQ2MmUwYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
-        },
-        {
-          "resource": "repo://libs/evals/Makefile#L16-L36",
-          "version": "repo-lines-v1:sha256:9216dc2841dfa5c427fff87f5a2539be3d7f2871594ce28539e2f57973d3e7fb:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjliYWM0ZGIyNTY0ZjYwOTRmMWVmODg5MDJhNzNiZDFiOWMzNjcyMjg3MjA4MjE3ZjZlYmE1YzYyN2RjOTM4MzMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI3ZjMxODYxMTE3NzQxNGJjYTc0ODNmYWQwMmViNDFlZDk2ZDliODA0MGI4ODQ0NmRlZTg1ZTA0ZjBjZGI0NWMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM1MjVjYTIxYmE4YjFmMjExMjllNTA0NGU3Y2NjM2U3YTIwOTk3NTBmNTM4ZGU5NDYzZDExZDIzODZjMTQ1MjEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBiZGQ2ODEwMjRlZDhkZjcyOTU4N2JkZDdiMTZmYzI3YWVjMDk2NGJlZTE0Nzc3NDg3ZTg2NGQ0ZTg3ZjkwOWQifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_d3e2051f443849e68b0faa243b0f012c",
-      "statement": "Model specs are curated into named model groups (e.g. set0, set1, frontier, fast, open, docs) plus per-provider groups; the source of truth is .github/scripts/evals/models.py and MODEL_GROUPS.md is auto-generated from it.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/MODEL_GROUPS.md#L1-L11",
-          "version": "repo-lines-v1:sha256:49ed022d3bf9bbf463c9e38807a6d6ba74ba43dcfa97f558dfd31be08026aede:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNlNWU5NzJmZmY1NDVhNTljMTIwYTQwODJlZWZjNDM0NTg3ODkyZDkwZjc3OTgxMWIzNGZiMGEwYmZiOGI2ZjMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQ5ZDIxYmQ2YmFkY2UyZTI2NDA2OGU0NTgxZGU1OGNiMjQxNDQ0ODQwMTk2ZGYyMmYwMjFkMzVlZWNiMWJlZTgifQ"
-        },
-        {
-          "resource": "repo://libs/evals/MODEL_GROUPS.md#L106-L116",
-          "version": "repo-lines-v1:sha256:cfa772bea172acc2ce5eb010db71b69db202c2d33eca417111ae88006417992b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ4NDU1ZWY3OTYyOWQ0YzIyM2Y3NzcwMzQ0ZWM5NmEwMjdlNmM1YTMwYzZjZDI5Y2FlYjBmNzJiNDM4MWJlODEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAxYmE0NzE5YzgwYjZmZTkxMWIwOTFhN2MwNTEyNGI2NGVlZWNlOTY0ZTA5YzA1OGVmOGY5ODA1ZGFjYTU0NmIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjlmNGQ2OGQyYzhiZDUwODhlNDdhOTAzMjExN2I4ODNjNzRkNDY4N2JlNTVhZDFjOWRiYTVjMzZmMTgxYmFiMzIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijk0YzczYjNlMmUxZWRkZWQ1NjI5MGQ2Y2RiY2MxMTkyZDVlYjM0NDNmYWIyYjQ5OTVmODQ1ODQxNDNjM2Q4MzQifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_6394ad8a52f14826b582dfb192c3f807",
-      "statement": "deepagents-evals model-groups --check and catalog --check are drift detectors whose non-zero exit is mapped to the configuration exit code (2) meaning the generated file is stale, distinct from an eval-failure exit.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L508-L529",
-          "version": "repo-lines-v1:sha256:dae505070ab1a4c6d1dbd824742d66a4ae811126fcfe54d3348696f46191fad9:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMyMGVjMzk4Yzk0ZmVhODc2ODM3ZjhkMjIzMTZkY2UzYzI2ZjAzNzYxNzdlYmQ4ZDQ4OTkwNTIyNWUwOGJhNjEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjgxNDQzNmY1NmYwMzU3MGQ0YzExOTkyMDg5ZjYxNWE0YmExMzY3ODgzMjM0Zjc4N2UzMDBmNmJhNTA5NDM3NzIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFkZDFhNDkwY2NhYjFjNzQ0ZjhiNDE3YzU2YjI0MTMyYzMxMmMyZjA3NTc3Y2NkMzEyY2UyMmEzNWY0NmQ4ZTQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY0OGEzZGQ5YzUxYTEyOGFhOTU0ZmVjYjJlMzlkZDFkNGE4MTJlMTVmZWNjNGM0ZTQxYzY2ZWI5Nzc3ZGE3OGQifQ"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L547-L564",
-          "version": "repo-lines-v1:sha256:1ac1333ef5bab904e77fd94afa503df2ee2f4a31648a1619b2fb67c7837519e9:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRkOWY3MmQ2MDM1ZTk4MDkwMzk0N2Y2MWU2ODYzZWI3ZTU5ZWI2NDU2YWQzMjZmZmJlMDU1NjdiNWMwOWQyYzAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUzZDVkZjk4ZjJlZDYyMGI1NzA3NTlhNThjZDY0ZGYzZTQ4YzhkOTRiZTgwYmU1YTk3MjExZmVjNTc0MjYyM2YiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijk2ZGY1ODM5MDE4NmI1ODA4NGQ0MzdlMmIxNjNmMGRjODk4YWE0ZmYyZjU0ZWUyYTk2MDJjZThhZTkxYTkxNTgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImZiZmU5YjQ0MDkxZDAxYzc3ZGU5M2ZjMjE5OTJhZjFjMDViNGFlNmRjZWYzY2YwYjUzMzdlYjFiMGQ5YjBkY2YifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_4acbdc47ca3c423193a3ef7c0297954c",
-      "statement": "The eval suite refuses to start unless LANGSMITH_TRACING=true and LANGSMITH_API_KEY are set, because conftest.py aborts the run when they are missing and every eval logs inputs, outputs, and feedback via langsmith.testing.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L95-L104",
-          "version": "repo-lines-v1:sha256:43015bbb925a8dea2bbfdf6ad17c02d0bb7c4d91384d5c1141165c7ac01fafab:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkxYjcyZTI3Yjc2MDhhMjhiNTA5MDQyMGMwMWIzMzg5ZDM3Y2MzNzU0ZDNkNGVmY2EzZGE0ZDVjYzQ0MmZjN2YiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMzNjM3NDRmMzU1Mjk5NWEzMjVmMDcyYjEzZTM3YTUyMGVhN2U2NDc2OTY2ZTU1YTZkODJiZTQwYmM2ODUwNDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImU4NWQxNTRjYzk3MDVjMzYwMjk1ZmM3YWU3MTc2MGJjMmRlZGYxYWY2MmNmZDIxODI5MTliM2VhZjMyMzNlN2MiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFhMzY5ZWM3MzJiNWJhNTVlMzk5YTcwZDU0YTUyOTFmNDcyNWYwMzhhY2JmNzI3M2M3ZDY5NjJhMzNlYjBiMzYifQ"
-        },
-        {
-          "resource": "repo://libs/evals/CONTRIBUTING.md#L88-L88",
-          "version": "repo-lines-v1:sha256:5350546ef24f00f312b13da6e11b3b57b078b1c4d58a0db30f03d43e42eae147:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTM1MDU0NmVmMjRmMDBmMzEyYjEzZGE2ZTExYjNiNTdiMDc4YjFjNGQ1OGEwZGIzMGYwM2Q0M2U0MmVhZTE0NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTM1MDU0NmVmMjRmMDBmMzEyYjEzZGE2ZTExYjNiNTdiMDc4YjFjNGQ1OGEwZGIzMGYwM2Q0M2U0MmVhZTE0NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiODZmNGY1ZjQyN2IxNThlN2E0MzgwNTQ1NmRjZWFhN2U0M2Y4ZGY0OTNhYTgyMmJmYzI4YzM0NjU4ZDc4ZGU1MCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMzZmZTZiMDYxZGYxMDc3YTU1MzllOGFkZDk1NDBhZWU5YWRhZWEzODRlOGQwNjE1ZDIyYWFjYTg2YmM2Y2ExZSJ9"
-        }
-      ]
-    },
-    {
-      "id": "claim_895736cc8131404fb85104763a1756bd",
-      "statement": "A trials run writes per-trial evals_report_trial_NNN.json files (metrics plus a failures array) and an aggregated trials_summary.json carrying mean/median/stdev/min/max for correctness, solve rate, step/tool-call ratios, duration, pass-fail counts, and per-category scores.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L106-L174",
-          "version": "repo-lines-v1:sha256:2f431362622b9dc74df8466ce456485c8ce066a29463226ac92c749dc22c2b7a:eyJzZWxlY3RlZExpbmVDb3VudCI6NjksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVmMTdhYjEyNGIxYTUzNzk5YWRmZDU2ZTE4MGQyYzBkOTRmNzY4NTQ1YzYwMTY2NDUwODk5MjkzNjE1M2ZlOWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ3YzA2YzU2MWQ1YzMyNzM0MzY4NTI2OGE0NmIzMzkxZjM5OThlZWU4OTBkMmJlNTFmMGQyMWNjNGE1M2FlNmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhhNmE0ODczMjgzOGMzNWRhM2JkMjNhOTI1NWM3OTE0MjU1ZDA1ZTAwNjhjNmFlYTAxYmUyYWI4MTIxNjQ4NDIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjE2ZjE2OWJhMjY2OTE3NjI0NGU0Y2I2NGE3YzRmYjEyYzFiZmI3ZDFlOGU0NTkxY2U1NjM1MzFjZGZlNzA4NWEifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_e90a25b7d17c42348d1eef5aa3914448",
-      "statement": "deepagents-evals trials --retry-failed accepts a trials_summary.json file or a directory of per-trial reports, reads the failures[].test_name node IDs, dedupes them across trials so a flake that failed once is retried once, and exits 3 when reports are found but none parse.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L350-L390",
-          "version": "repo-lines-v1:sha256:5b79b8c6d449ca647c53f9d6dc0ce2bb3516246a4bc6c4e4f8cfd7897d834fc3:eyJzZWxlY3RlZExpbmVDb3VudCI6NDEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVjYjcwZjVjMTc1N2Y5MTY0NzFmZjFkZmZhMWVlOGNiYjA0NjNjNzM4NzVmN2VhYjk1NGJjYmQ3YzI2MDg1NjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY3NGI5NmVjYzUzY2ZhZTdlY2FlOTM4NmJmNmYxZTAzZDcyYzA4OTEyMmMwNjBlMTI3NDViZTI1NWM4NTEwMjIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZjMzUzM2UxYzQxYmY3ZGIzMzkxMDgxNzY3ZjVlMzg2YmFkMDE4YWQxOGQ1ZDBlMjI4MWNmZjlkOWEwMTM2OGUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjAwN2RhYWY2ZDY3NTI5NjM2ZjE0MzRmNjg0YWQyNzQ2MWFmMGU3NTEwMzAwMzA2NmUwYzIxNzY3ZjFlZGU4YzUifQ"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_evals/cli.py#L416-L438",
-          "version": "repo-lines-v1:sha256:5f791bf039dd4f97ac8f5e983f3778a3cc9fb70202b1145be9651352b0179d2f:eyJzZWxlY3RlZExpbmVDb3VudCI6MjMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFlMmE1MjlkYzE2Y2UzNWU5ZmJhZjUxMWM1NGFlMzgxNmEzODlhNmJmNTdlZDFjMmFmZjFiODhlYjYwYzhhMTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNkYzIyNDU3NzcwNjYyNzM3YjA3NDNjMzBhN2MzZjM5ZDhjOWYwYTVjZTY5ODM2YTVhZGU4MjVlZjY0YzlmOWEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjA5MjNlNDc1ODJmNGQwZWFhYTNjNzk4YjdiOTQwZGI3MjZiNjE3ZThiOGJiZjgxNGU3MDkxZDA5OTg1ZTIxMTIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjZhNzI0OTA1OTAxY2RjODkxYmIyZmNkZWYwY2VhODRiYzdiZTYxNWRlMDAyYzJjY2MwMzkxOGE3NTk3NmQxZDAifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_d213b0fc11a44a2db7ad3b34c01c01cd",
-      "statement": "deepagents_harbor owns the deepagents-side Harbor integration: LangSmith dataset/experiment/feedback plumbing in langsmith.py and trial failure classification in failure.py.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/deepagents_harbor/__init__.py#L1-L19",
-          "version": "repo-lines-v1:sha256:154bbd5fa3a751d8e8dcf3d4ed2c257a3f125739a6d7371058ac3dbe62bf63e8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ3NzllYTI3Mjc4NTlmMGQ1ZGNkOTU5NDkzNmExYzhmZDVkZTU1NGFjMDI2YTBmMDVkYmExZmRjMzBmZjRiYWYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY5NDE2ZTA5Zjc4YmEzMTZjMDMyNTY4MjEzYjg1NWVlNzU2ZTQxNTY1ZDkxOGYwOTUxOWM4MWZkNjIwZjQwNjAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
-        },
-        {
-          "resource": "repo://libs/evals/deepagents_harbor/langsmith.py#L1-L9",
-          "version": "repo-lines-v1:sha256:cbdca62dd1922271b52b5c44842de8cb6254ff836f7be662dcc6fd92b3a37580:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiN2M2OTVlNTkyNmVhMmUzZDZkZDk1MjI4YzdmODhmZGI2ZDlkMDBiYTgwMDIyMDc3ZWJkOTRlM2I3ZmE1YjY2YyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTMwM2VjZGQ0YTRkMTBmMTljNzNmZDQyZmQxMjQzN2ZkMzM1NGE4MjY4MTYwNWRhNTI1NWE5N2EzOTA2OGRiYiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiY2Q4OTAzYzAxNjdmY2JhZWU1ZDFlYzYwODY5ZWYzZjRhOWRkNGQzYzMwYzQ3OWY2MTY5NWU0OTc3ZWQzMTE2NCJ9"
-        }
-      ]
-    },
-    {
-      "id": "claim_99edcee805474d629fef66801dc33816",
-      "statement": "deepagents_harbor.FailureCategory classifies each trial failure as model CAPABILITY versus infrastructure (INFRA_OOM exit 137, INFRA_TIMEOUT exit 124, INFRA_SANDBOX), so infrastructure flakes are not read as model regressions.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/deepagents_harbor/failure.py#L1-L40",
-          "version": "repo-lines-v1:sha256:5aa23be06d331ee82e6683a74544e107c87ded81f45b8dca022ddff8a93057e9:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk1M2EzYjZkNjFhMDU0YmJmZWZiNTdkZWE4Y2RmNzVjMTY2Mzk5YjkwYWFmM2YzN2IyNDBkZDQ5YTdmYjczZDEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY5Y2I3NzAzYjU5ZDg4Zjg3ZGNiYjg3M2ZmOTQ3ZTRlNGRkMmUzMzJmMjZmOTcwZjI5ODg0MzlhYzg5NzJmYjkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjczZDVhMGY1ZWFkOTA4ZTRiYmMxNmEyMDhlY2YzZTJhNWJkYjAwNmU1OGY2ZDE0OTZlZDljMzU4YmYxYWQ4MzkifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_8d4b9359a657477598ca57e126c361d1",
-      "statement": "deepagents_harbor/langgraph_project/langgraph.json is the source of truth for the packages the Harbor agent environment installs, and Makefile targets (run-hello-world, run-terminal-bench-*) drive Harbor across backends after make stage-harbor-local-deps stages checked-out packages for the sandbox install.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/AGENTS.md#L180-L188",
-          "version": "repo-lines-v1:sha256:3708e50db302740c108aaa16fd9b84573461938dd6ee5d227b468521ab6daf4e:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzg3Yjg2YTMzMjVlOTA3OGQ1MGJjMTE3N2JkNjZiZmNmNTExODg0ODEwNTQyMmU0MGUwOGM5N2YxMzdiNmRkMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDM0MDJjYmJjOWE0NDRjYzYxOTVlZjJkNGIwODRiMjMyZTBkZTkwZDJlNTZhNGY3OTk1YjI4ZWVlMzAwYTFmNSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTVkNGIzZmI1MTU3OTA2ODc5MTYzYWI3NTE1OGZlNzNmYzMwMDBmNTE1YjZjMzA3YzkzNGM5MzNjOGFkNTMxMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDY3NjgxYjM4Zjk3ZTI0YjNhNWU4Y2ZkZTJjNzUxMzAxZjMyMmVmZmMzOGYwMGVhMzc5ZTg0MDM3NGU2YjRiMCJ9"
-        },
-        {
-          "resource": "repo://libs/evals/Makefile#L41-L80",
-          "version": "repo-lines-v1:sha256:756b7ec1bd6faa3397c2a3cb9aa81f747cd644d4e5f3e56339ca3c63e2cafaba:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNkZGVlM2ExZDhhMWE3Nzg0NTBlZGRhMmI4NzIzMDkxYmU5NWQyYzFkMjYyMDJlYjMyODIwMTllMDk2ZTNkOWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNlZTljYjQ2NmU5MDdkNTQ3YTgwODFmODU5YWE1NzQ0NTkzMjUzOGYyODk5ODI4MDg1MzI4MmI0MmRkZGJjYWEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFiNzIzMTVlYmEwODdjZWIzNGFlNTVmNjA5OWE3YjI2NmUyNDcyY2Q2NWU2ZWZiZjhhMjA5MzgwMWMxYTE3MGYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg0NjQ1ZmJhMzhkMjNlN2YxMjc4ZWU1Zjk3ZGM1ZjM0ZGI3MTYwNzA2NmJhMDYzNjQyMjM3YmFjYmIxOTU2MGQifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_dff35d2160cc4dfda74dbe80f173e912",
-      "statement": "The unified evals workflow runs one or more models through a fixed battery mapped to capability axes — autonomous (harbor-index), conversation (tau3-subset), context (context-retrieval), and research (drbench) — and publishes one cross-model comparison (leaderboard plus, when at least three axes run, a radar chart).",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/UNIFIED_EVALS.md#L1-L3",
-          "version": "repo-lines-v1:sha256:bc6f56bbe96ef77afec7378f4b639e764ddf209ecbc318ee07820d462d101b74:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjAxMWNlMGUyMTBmNDhjNmFiNjAwZDFjOWEyOGE0ZmEyODgyZTY1M2M2OGFjMGM5MTU1YjdiNGI1YzExZjI2MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMzg3YTMxM2ZjODBjMjI1NGZiMThmZDU0ZTNlMGMyZTEyMmNjM2YzNjA0YjY5NTRmZTFiN2RlOGJjM2MzNDM4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzA1YTI4ZmY5NWRlYzE5YWM1MTFkMDg0NThiYzlkZTk0MmNjZGM5YmVjMzJkZmRjYmJjMjdlYjhhZjQyZTBlNCJ9"
-        },
-        {
-          "resource": "repo://libs/evals/UNIFIED_EVALS.md#L105-L114",
-          "version": "repo-lines-v1:sha256:d1f8d553c9883ee2533f0524ad3d102a9c7ea456b418d61471ba3b1cfb77773f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZhNWE4MzczYWMwNGFhMjM2NzQzNjE4ZjI3OWI5MjY2ZTI3ZGI5M2I3OWVjZjNhMDY0MDhmMTFjMjAyMzYzNWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg5Y2JlNmM1NTAzZDk1YzhmMjgwM2E4OTkwY2VkYTY0N2E0ZTg2ZTJmMTQyNGU3MTVmM2Q0Yzc2NTBkOWEwNTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY3ZTFlMDhmZDgxOWVkYmU0YTY1MDhlOTFiM2YwODMxNGJlYWI4ZWI0OTQwZDQ2N2VhNWNlNTJlMjA3ZDk4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ1MWY4YzY2NWYzZWUzYTU0N2FmNWViNDliM2Q4ZmI1ZGI1NGQwNWYyYzFlNjIyNTI4MWRiZDhhY2MwYTY2MTYifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_0d76445e918a42c5898944467a267a42",
-      "statement": "In the unified battery the conversation axis is bound to the tau3 runtime because that runtime hosts the user simulator the agent must converse with, while autonomous/context/research run either the neutral bare create_deep_agent or the dcode product agent.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/UNIFIED_EVALS.md#L126-L126",
-          "version": "repo-lines-v1:sha256:f45c6bba0bda1bc2a797d99e3146cbfa0401a7460c0cc16c9b42e1d122d1c77d:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjQ1YzZiYmEwYmRhMWJjMmE3OTdkOTllMzE0NmNiZmEwNDAxYTc0NjBjMGNjMTZjOWI0MmUxZDEyMmQxYzc3ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjQ1YzZiYmEwYmRhMWJjMmE3OTdkOTllMzE0NmNiZmEwNDAxYTc0NjBjMGNjMTZjOWI0MmUxZDEyMmQxYzc3ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzc5MjkwYzQ1MTYxNDE3NTAxN2VjMjA5OTg4YjcyYjJmYjM4ZGRkODRjNmUyYjUzYWNlYWQwNDEyZjU3ZDZlMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGQzNTBiZjE2Mjk3ODlkYTdiOWMyODA4MzkxYWE3ZWM2Y2VjM2E0ZTA0OTBlNjg0ZTYxNzg0MDg2NWYwYzZiMyJ9"
-        },
-        {
-          "resource": "repo://libs/evals/UNIFIED_EVALS.md#L13-L13",
-          "version": "repo-lines-v1:sha256:5608e561df7f3c4c1950ba9aca80ff7003a2242175adb3ce4859b6881241e2e6:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTYwOGU1NjFkZjdmM2M0YzE5NTBiYTlhY2E4MGZmNzAwM2EyMjQyMTc1YWRiM2NlNDg1OWI2ODgxMjQxZTJlNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNTYwOGU1NjFkZjdmM2M0YzE5NTBiYTlhY2E4MGZmNzAwM2EyMjQyMTc1YWRiM2NlNDg1OWI2ODgxMjQxZTJlNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiM2M2NzYzYWE1ZWQ4NDg2ZTFiNTQyNzEzMjVmYzJiY2QzYTlmNjQwYjE1MTJjY2FiY2ZhY2I1NTYwOTA5NjA1MSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDg5ODNhNTkwYzRhZTU1ZjNmMmFlZDUxYTExODY2ZDVmMmY1MmFhMTc3NzIzNjM5YjE5NmExZjk0Yzc5MGI5ZiJ9"
-        }
-      ]
-    },
-    {
-      "id": "claim_89934176cee34962904e6d9ffb141195",
-      "statement": "Unified evals score each axis on pass@K (fraction of tasks passing in at least one of K rollouts) except graded axes such as research, which report avg@K because their pass@K is 0 by construction.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/UNIFIED_EVALS.md#L114-L114",
-          "version": "repo-lines-v1:sha256:89cbe6c5503d95c8f2803a8990ceda647a4e86e2f1424e715f3d4c7650d9a059:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiODljYmU2YzU1MDNkOTVjOGYyODAzYTg5OTBjZWRhNjQ3YTRlODZlMmYxNDI0ZTcxNWYzZDRjNzY1MGQ5YTA1OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODljYmU2YzU1MDNkOTVjOGYyODAzYTg5OTBjZWRhNjQ3YTRlODZlMmYxNDI0ZTcxNWYzZDRjNzY1MGQ5YTA1OSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiN2JjZjQ1NDU0NWE0ZmY3ZjQwYjc1MTBjOGY0ZWM0ZDcyYWY1NzM4NzVkOGNjMjdiODY5MDEzY2JmOTM0OTNlYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDUxZjhjNjY1ZjNlZTNhNTQ3YWY1ZWI0OWIzZDhmYjVkYjU0ZDA1ZjJjMWU2MjI1MjgxZGJkOGFjYzBhNjYxNiJ9"
-        },
-        {
-          "resource": "repo://libs/evals/UNIFIED_EVALS.md#L14-L16",
-          "version": "repo-lines-v1:sha256:08983a590c4ae55f3f2aed51a11866d5f2f52aa177723639b196a1f94c790b9f:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTE0MmI0NzUzOWU2ZWE4YmQyYTIxNjIwMDlkNjY1ZGVkM2RlZjgxNjViODQxYjk4MTgwYTQ4ZGRlMzI3MjNlYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWM4YzY4MDlhMTBlMzVjNmMwMzE4NjAwMjE0OWEzYjFhMTBkNzQ5Zjc2MzkzYmVjNWMxNmU4MDE3OWE5MjQ0MiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzA4ZTRjYzljOGVhNjM2ZDAyN2M5YTk2MGE1NmViMDkxNTNlYmViODA3YTQ0NDA1ZDcyMjIwYWU4MjFlMDdhOCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYTJhMTVkM2Y2Y2E5YzdkYzJiNTQwYzA1YjRmZTdiY2U1OTUwOWMzMTFkZTc1MWU5NGQ0NTY5MGMwMmYyYTdkMCJ9"
-        }
-      ]
-    },
-    {
-      "id": "claim_9e0a0ce2abe649cd80a98591b82888ff",
-      "statement": "The normal libs/evals test target runs pytest against tests/unit_tests with non-Unix sockets disabled, while make evals separately invokes the real-model tests/evals suite.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/Makefile#L9-L21",
-          "version": "repo-lines-v1:sha256:71e17264e58f06f91bd83dc9eb5996b83f9e5bb9e7ccaa2c3fa707e19106caed:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA5ZjNhNzI0MWE2NmI3NjAwYjM2MzViZmQ3NzE4MGU4NDY2YTZkMzYxZDRjOGY1ZTg4ZmEzMWFlNTgyMTZkN2QiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjNjZTRiYmEyZjZhYWE3NTcwNDA4MWUxZTcyNGM3NmViZjg4MDMyZjgzOTUwZGQ0NmI3MGNhYzJlMDIxOGI4ZTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc0ZWJhYzU1OWIxOGIxZWE4ZTkxZWUzMGM3YmE0ZWMxMGY4YTU5OGQ5NDNkYThmZDI1NDRkMzJlNGZlZWYwMDIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjlhMDg0NjMxY2FlZTVmN2NjMjZjMmNmNTM2YTM4NjNhYjdiNTgzNmI1MDFjYzBlYjAxNTEyOGRlMWQwN2VjMjIifQ"
-        }
-      ]
-    },
-    {
-      "id": "claim_5bc0d428a1ed456bb9d9e8d8302a893b",
-      "statement": "Within one run_trials invocation, trials run sequentially because concurrent in-process LangSmith experiment creation and provider rate limits are unsafe; CI instead parallelizes separate jobs and merges reports with aggregate-only.",
-      "evidence": [
-        {
-          "resource": "repo://libs/evals/scripts/run_trials.py#L3-L16",
-          "version": "repo-lines-v1:sha256:a751c642e0caa7fd09689728d16aa369fb43b4ff431be5149917e21178d74b0f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg1OWQzODgxNmZlNzE0MzNiOGVhMGM1NDhjOGFlYjVlNTg4YmQyZWQzNzAxZjk0YTM4M2RlYjhiNzU5YmQyMmUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg3MmZiZjUyNjFiN2Y5Mjk0NzdlM2M0YzczNzg3NTc5YTEwMjQ0NWE0ZTc3ZmUzZmVlNmU0OTUyZTgyYjgwNDkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjoyLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI5MGFlOTRkMzY3YTYwNzhmMDRlZDcyNDI1MjU1MDYxZTRmMjQ3ZmI4ODkzZjJlNTMwMjcyNmJlM2I5Yjg2NjYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFhYWY3NjM3Y2I2ZTdlNWRiODVkNjM0Mjc0NjAxNGRmMDQxY2NkNTU4YTkyMGIyOWViNmFjNzE5ZDdiYWY1YzIifQ"
-        }
-      ]
-    },
-    {
       "id": "claim_8deca7ea344043ff9edb122681d98c42",
-      "statement": "The Harbor LangGraph agent removes provider and LangSmith credential variables while performing shell operations and restores them afterward, preventing task commands from inheriting those secrets.",
+      "statement": "The Harbor dcode graph factory temporarily removes provider and LangSmith credential variables while it constructs the shell-backed agent, then restores them afterward, preventing those variables from being present during that construction.",
       "evidence": [
         {
-          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L61-L93",
-          "version": "repo-lines-v1:sha256:92a62124152af4e8b29cf07ae0857e92b6e5ced1e9db2342fc0c709b0ab2785e:eyJzZWxlY3RlZExpbmVDb3VudCI6MzMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjcyZDA3OGYwNWQ1NzJiNDI3MzBlYWZkZTQ0ZDRhMjMxNmI4NzljNDM3Yjk4NWRmOGZlNDVhMTQ1ZjViYWViNmQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ4OTFhNTM5NTJiYmYxMzJmYjlkMjJkNGU5MDllOWUwYThlMTdjMzMwYmFhNGIwYWY5Mjc5ODFkM2FiMDc0ZjgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjI1MTBmZDhkMTE5YzNmNmNjZjgzYzhiYzJhNWU5NWQwMDIxMzJiM2JkM2Q5ZGY3YWYxNzIyMzdkNDI4MjIxMTAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIyN2JhNGQwNDU2ZGU0OWYxM2I5NGRjZWM1ZDEwM2RmZjM2YWE3NDZkMzU1MjllOTgyZWRmNTRmMzdmNTU5ZDQifQ"
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L313-L371",
+          "version": "repo-lines-v1:sha256:c37335bd99e422b3ec468471faab9e3b4bd9d7bdbd3ba201e6212c918f6cd9d7:eyJzZWxlY3RlZExpbmVDb3VudCI6NTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFhNDJlYjhiY2U3MzE3NWU3YzBiYzRlNWU2YmJlOTg5YWQ3NzFjMjI2YWEyOTc4OWRmZmFkMzAwYzdhOTUxY2YiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM1N2MzOTMyNmViNTE0ZDQzNjJjZGVhYWRjZTE0YzQ5ZmYwYjMwYWFmZWFkMWFmN2JiNTQ1ZmNhM2FlZmI0YTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhjYzRhN2QxY2M3OTZhYmEzZTQ2NzIzMzI3ZjUxN2U5ZjgxMTk4MmQyNTBmMDcwMjk4NmU0YjU3NjRhZDk1ODkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBlZjYwNTBjMGZmMjIyMzQ4ODE1OGQwNDQ1NDkxMjc4MzY3MzUwZTAzOWZjN2E3NGVhZmFjZDI3ZmZhOWNjNzAifQ"
+        },
+        {
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L53-L101",
+          "version": "repo-lines-v1:sha256:cd11f3cd1da009cddb53fb4d2f4c030b45b56ea9e16c7f931f5b03a5a8a06f1b:eyJzZWxlY3RlZExpbmVDb3VudCI6NDksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQzMGQ3ZmY0NzQ5Nzc2OTZkM2UyYzAzZDk0Njg5ODAwNGE0OTVlMTc4MzYzNDEzOTVkZjdjMWY2NGMwNGNhNjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ4OTFhNTM5NTJiYmYxMzJmYjlkMjJkNGU5MDllOWUwYThlMTdjMzMwYmFhNGIwYWY5Mjc5ODFkM2FiMDc0ZjgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQzNTJkMTYyNTE0MTMxYjkwZDE0OWI2YjNmMTRiNWQ0NmVkNDk0OGI2ZmE2ZTI0OTg2MDg4YWJiNjcwNGU5YjYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIyN2JhNGQwNDU2ZGU0OWYxM2I5NGRjZWM1ZDEwM2RmZjM2YWE3NDZkMzU1MjllOTgyZWRmNTRmMzdmNTU5ZDQifQ"
         }
       ]
     },
     {
-      "id": "claim_409a92d04f1046f8bb89e45e01ae8088",
-      "statement": "run_agent creates invocation inputs from the query, optional initial files, and extra state; invokes the compiled graph with a thread ID; logs inputs and outputs to LangSmith; converts the mapping result into an AgentTrajectory; and applies the optional scorer.",
+      "id": "claim_ba9d60dc9796406d9cb6c2ff54095239",
+      "statement": "The reusable Harbor workflow validates required LangSmith, model-provider, verifier, and research web-search credentials before sandbox execution; it rejects unknown sandbox environments and missing secrets rather than running a materially incomplete benchmark.",
       "evidence": [
         {
-          "resource": "repo://libs/evals/tests/evals/utils.py#L1445-L1493",
-          "version": "repo-lines-v1:sha256:bb0e0d97bd45556f81f02ecc57b765e50481383dc5d5d468ca2fb46027a29eac:eyJzZWxlY3RlZExpbmVDb3VudCI6NDksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjI4ZTY3NjcxYTY1OTU3NjZkMWJhNGY4ZjRjMTYxZTVmYmViZTZlNTRhMjI3ZTI2NzczZDMxODkwODJkZjE3YzUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU1NjczOTc5MGYyOGMyZmQyZDVlZDlhZDMwMzFlMGY2ZGU1ZjE4MTlkNmE2NmFjY2MyZGE3Njc1ZGZiYzJkMzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImIzZGYyYWNmMDZlOGMzZjAzYzcxMzVjNmU4YWM1YTljYTU0MzJhYmUwNmE3NGFjYTBmZGQ5YTUzYTAwOGY5ODciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVlYzEwM2E4YmM2ZWUxYjc4N2JhODI3NTE1OGE5MWYxN2E4MGZkMDE3MDZkYmYxNzNkOTdjMjU1YWM2MjMzYjUifQ"
+          "resource": "repo://.github/workflows/_harbor_run.yml#L396-L514",
+          "version": "repo-lines-v1:sha256:5b2d9338c166d6e47f537cddc3500613f3bac9474943672072d4004529ef987d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTE5LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiIwMDQ0NmNmNmJkOWM3OGI0Y2U4NDkzZDc3ZTc2YTVmZTdlNTljYzgwYTQ2MmRiNGRmMzU0MmIzMDJhNzhlMzg5IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJiZDBmN2YxZDZmNGNjMDJhZjA4YjFkZDVmNDM4ZDFjNDlmMGMzZjRkY2Q4ZTBhYjEyZjU3MDI0NGQ3Yzc4OGZmIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiIyOWEyYTNkNTM3ZmVmYzdmMTdjOWVlMzY1NmQwM2ZkNjAxMjBjMzk5OTRlNjQxYjNlNTU3MDEyN2QwY2MxMTFmIiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiJjMTQ0YmMzODJjMGFiNTkwMzhlODIxYTRlNDM4OGQ4MzBlOTlhZTNmNmZjNGU0ZGZiOWI2ZGFmNzU4NWJiYmNiIn0"
         }
       ]
     },
     {
-      "id": "claim_e736839dfff244c499625b1502fb64f2",
-      "statement": "The eval-catalog drift unit test invokes scripts/generate_eval_catalog.py --check and tells maintainers to regenerate stale output with make eval-catalog.",
+      "id": "claim_60334bf102404661a9dacdf162bce398",
+      "statement": "The Harbor LangGraph project provides dcode, bare, and tau3 graph factories; bare uses a restricted local shell and task-provided skills/MCP tools, while task-provided MCP definitions may use only remote HTTP or SSE transports to prevent dataset-supplied local command execution.",
       "evidence": [
         {
-          "resource": "repo://libs/evals/tests/unit_tests/test_eval_catalog.py#L9-L29",
-          "version": "repo-lines-v1:sha256:f1869d1ae9dea823ed77597e7467ebc72d82f54d750da71c0b33a3a5ea4fea13:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc1ODY4N2Y1ODdiZjIzNTM5ZmFiZTU4YTAyNjFlMjA3MWEzODk2ZDM3MDExNjdhMmMzNzUzNDhmNTY0OGRiZTciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYzFmMTg4ZjE0MmVkN2E4MjQ2ODBiMjA3MTcyYzU1MTliYzYxNGE0OGZkYTdjZjE2N2VkYjhkZGY3OTk1NmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM5ZjFiZmEyMjNiOGU0OGIwMTRmNzY1MjIxZWMxNDM0Zjk3NWNiMjVmNGVjMzYzMjkwNjcxNzk4NWIxMDY0MzAiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph.json#L20-L24",
+          "version": "repo-lines-v1:sha256:659b9d42eb07ab569c00b9c385862c17004e4f1374781212c7806e2448d75ab2:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZjQzMDI2NDY0ODUyNzc2Y2FkMmQyNzljMTYwMzBhM2IyYzU3YjgzYzExMjA1OTJlNmFmODFiNjliNjg0YmFhOCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjdlNTc4OGQ1ZDlkNzNkMjRhODFkYmMwYTVhNzRiZmE4MmM5YzNiM2FmOTllNTJhZjc5NmU5MGI0NjhhOGEzZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzM3YmFhNmIxZGE4MWJiNjZjNDRlMzhlMDBlYTU5ZTkzOGY0ZDNlNjBhMWEzMzdlYjY3Yjg2MDZkNTYzNjZkYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjEsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDEyY2EzNDVjY2Y3NWJmOWMwODA2YmNlNjk1YmU4ZGU4MDhiNzk5ODQyNTFhN2E1NGQyMDJjZjYxMDFkZDQ1MSJ9"
+        },
+        {
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L451-L496",
+          "version": "repo-lines-v1:sha256:5671a1045b55a3676b264e4353e2691744b665f2b5584786efcb8ee1f1a6d2dd:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI1MmY4MzgwMGU4ZDc5NDg2NDhkNTk4NjIxMTIyNTI5NjRkYTQ5NWVjZjRiYTkwMDAwOTRlY2JiYmI5OGFhMGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYzFmMTg4ZjE0MmVkN2E4MjQ2ODBiMjA3MTcyYzU1MTliYzYxNGE0OGZkYTdjZjE2N2VkYjhkZGY3OTk1NmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRhODRiMDJkNmU1ODIzNDVkMzJiOTQ0YWVjZDc3ODIzNjc3OTAzN2UyMjRkN2MzZTNhOGVkOGJiODJmMTU4YTMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQwOWI5ZDVhYmM4MjM5NDE5MGMzNGY1YWUzMjg1YmQ4ODdmMzZkNmIzY2ViZmFkOTg5M2ZjNGVmN2E3MzAwZWYifQ"
+        },
+        {
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L499-L573",
+          "version": "repo-lines-v1:sha256:5780aa1abe1fae7b29297abecbf394ae023640a1c1a77c212776a63e7c8bbb46:eyJzZWxlY3RlZExpbmVDb3VudCI6NzUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVkZmVlMDUyNTllODQ0NDJiODViYWU1MDkzZWJjZTI4Zjg0MmY5MjFkMDE4MWRhZWRiYmVmYWYwMGU5ZTUwNjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImExNDZmNDMzMDcyYWIyMzk5NzJiMzFhNmNiMmQwMDdjYWU2MWU5OTUzMjAwZDhjM2E1MWY0ODBiNzlkMDE4ODMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhjYzRhN2QxY2M3OTZhYmEzZTQ2NzIzMzI3ZjUxN2U5ZjgxMTk4MmQyNTBmMDcwMjk4NmU0YjU3NjRhZDk1ODkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY5YjU2NTI1NDk0MTVmMDBlYmE5NDlhNmJhM2Y4ZDJkZjE4ODI4NjdlYmYxZmNmMzQ5OWQ4MDRlZmE0MGJjNGYifQ"
+        },
+        {
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L576-L600",
+          "version": "repo-lines-v1:sha256:25cda5340da8816e603d7f11a27acb92b04a1bc8b17672330481bc0bf930c1a7:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ2ZWU1ODMxNTg0ZWZjMTY2MmUyMGYxM2M4NWUxYzAxMGQ0NjM4ZjUyZDFiZTIyZGI1MTMxY2MxMmFhMjQ1NDkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZiYTgzZDhhNTJiOTI5NDlmMDFmM2Q4Yzg2MzQ3MzFiMDMwNTRjYjVkNTA2MjgyYWZhNDNkYjczNzQwYzZmOTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQ4MmMwNjQyMDQzMzI5MTZkOGU5NzM1MjViN2E1NGU2YTkyMGM2MzgwMzFjZGVlZDNmNzVmNzQ4M2VjNjQ2M2QiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRhMDcwZjM5ZTQ5ZTZlY2QzYWI2YWNhNzAwYTE4NTdhM2MxODJkYjlkOTAyMWY1ZDBmMDI0NmUyMGVjNmEzMWEifQ"
         }
       ]
     },
     {
-      "id": "claim_a1eab94d780340db9d65dc8a61828050",
-      "statement": "The eval pytest configuration filters collected tests by repeatable category and tier markers, gives category exclusions precedence over inclusions, and exits when a requested filter value does not match a collected marker.",
+      "id": "claim_5615f52314d4480c8a4eb339233d320c",
+      "statement": "Focused unit tests cover Harbor graph registration, secret scrubbing, model identity/defaults, shell and skills wiring, MCP transport restrictions, session identifier normalization, and Tavily search bounds and failure behavior; unified-prep tests cover matrix policy, task/profile validation, native-agent compatibility, packing, and capacity guards.",
       "evidence": [
         {
-          "resource": "repo://libs/evals/tests/evals/conftest.py#L136-L200",
-          "version": "repo-lines-v1:sha256:472dcbe8bfefc15d27c03035337b5054ee7a1d625ce10da00423a3dde10bf1d7:eyJzZWxlY3RlZExpbmVDb3VudCI6NjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZkMDhkY2RiNmJhMDEyYmQ4YmY2NjUwNGM4OTE0OGQ4YzJmZjRiOTQxNmVlMzIwNDZiNWE5NjIyMzJlNGNlNDgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ2NmVhMjMwNDE5Yzc0NDJlZjUzOWUxMDdjODRhMjI0MDFkOWMwMmY3NGM0MWQ2ZGQ5MjU4YjM4MjJiNzU3ZTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhjYzRhN2QxY2M3OTZhYmEzZTQ2NzIzMzI3ZjUxN2U5ZjgxMTk4MmQyNTBmMDcwMjk4NmU0YjU3NjRhZDk1ODkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIzODkyYWNmNjI4NTI4NjIxMDEwM2EyYTEzM2RkMjgzNWQ4YWQ1YWM5ZmY1NzA0MzM3NWQ4ZWNiOTA3MWU4ZjgifQ"
+          "resource": "repo://.github/scripts/tests/evals/test_unified_prep.py#L406-L505",
+          "version": "repo-lines-v1:sha256:545084d28d4707f5ce61dc8a1c1aeb62d797425e60c2260cca07882362da2fe5:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAwLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiIyZjY3NTQ1ZDUxNjI2NzJkYTAzN2ZkMWUzYWYyMjdhMDA1YWU1MDYxY2ZiZDhhOTBhZDE5YWM1ZGU5NmJiODI4IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI3M2I3OWI2ODBkMWI0MmM4ZWZiZDJkNzg4YWQ5MDFhM2Y5YzI1Njg4NjIyNzdlMTJiZmZjZGI1Y2RiNzA5ODYzIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiI4OWZlZjA3MTZlMGQxNTJiYmExNzU3MGQxYjhiMGZkMzIxMjhhYmI0MDliYjhiNDkzNzA3MzZiZGEwMWE5YmY1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiI0MjgxMDcwZTliZmIzYThiNjQ1NDFhYTc0MDhiMWVmMDMyNTJhZjhiNGUzMzNjZTUyNTY3ZDRjNTljYWY5MWEwIn0"
+        },
+        {
+          "resource": "repo://.github/scripts/tests/evals/test_unified_prep.py#L597-L688",
+          "version": "repo-lines-v1:sha256:f77435d78d560d7fd05cb19d47be270c156ee72f64f0d4b35980d0f315157442:eyJzZWxlY3RlZExpbmVDb3VudCI6OTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwMGUxNjkzOWMxM2U5MTYwYmY3OTlhMmY3NjQ3N2VjYzJhNDJmNjhiOWViNzFmMmZjMWQzNzAxZGVjYWFmMGMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM0M2Q0MDFmZjg4MTNkYTQzODZjZDdkMTgwOGU5ZmYwMTU0NmQ1YjlmNWQyMWJhODgzMmI4OGVkMWUwZmQ2OTAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImRjMTcxOGNmMjgzYTc4NGFjMGRiMzM4OWJkYWUyYzE5MzZkNTY4OWE0NmY4ZTEzNDY4MzdlZmI0ZTdkM2MyMWIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijk5MzVkODk5NDk3YjA0ODUzODNlZDAxNDgyOWFhODIxY2QxMTgxYzAzODE1MmRjOWMwNDZiODM5MTFhMTQ5ODEifQ"
+        },
+        {
+          "resource": "repo://.github/scripts/tests/evals/test_unified_prep.py#L90-L171",
+          "version": "repo-lines-v1:sha256:61be1c647cf0a3ab528c73783a9cf3006c3e68df9f9fd9cee13d1c9a4d5a08b7:eyJzZWxlY3RlZExpbmVDb3VudCI6ODIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA1YTI3YTk0N2I1ZmNlMmVmNzg1OGMzMDM2OGVhMGMwOGFkZjRjZGVjMTk1NzM5MjBiMDZkOWRiZWZhZmE0YzAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUwZGFjMWVlODVkZDcyMDE3YWIwNTI0M2UwMDkxODc4Y2E5ZjU1YzNjOTVkY2E4NTkyNzRiMGI4MzBjYWI2ZGEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijg1OTRmYTBiMDdiMDQ0YzRiOTkzMTEzZjRkY2JkYmIwMjVkYjQyZTNhN2NkMTQ3YzM2YjU4NzRiODFmNTdkM2QiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjgyY2ViMzM1YTg5MmVhY2VhMjBhMjM0YzFjY2QzNDAxMmIyZWI0OWQzNmJhOTdlMjZjZWM1NmFlMDMyYjJiYWMifQ"
+        },
+        {
+          "resource": "repo://libs/evals/tests/unit_tests/test_harbor_langgraph_agent.py#L177-L272",
+          "version": "repo-lines-v1:sha256:019e84e2ea258ffddbd552b7858febc4cfebe38760b37a72373da4b7745ad5cf:eyJzZWxlY3RlZExpbmVDb3VudCI6OTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUxNmM2ZDZhY2I1YTMxYWY5YmE4ZTllZmIzMzZkZjNiODEzNWU1ZjAxMjVhMDM0Y2FiODcwNDhkNDM1ZjAyMDAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQyYzMyN2EzZDAyN2FkZTEzNTc4MjU2MjcxNDljOWVjMmQ4ZTAzNWRiODM2NjhhZmYwYTBkNzFiMmE2Yjc4MDQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFkYmMxMTMwZWU0NWU0ODZkODNmODYwMjAyMzBmNjJjZWI3NTIyNjQ3ODY0YzIyNmExNDkzZDczOTI1NGFiYWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImEyZWY0MmRmZGZhYTc2YjMzZmZlYjdjMjU2YTk5NjU4ODYzMmUxYTdlYmIwNjc5NDk5MzNlNzZmMzE3Y2I2OGMifQ"
+        },
+        {
+          "resource": "repo://libs/evals/tests/unit_tests/test_harbor_langgraph_agent.py#L47-L95",
+          "version": "repo-lines-v1:sha256:5fba293c110d46f0a3f96d0d316dc3fe83e576de839d27f8494444c598711c2c:eyJzZWxlY3RlZExpbmVDb3VudCI6NDksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM4Mjg5Njk2Nzg4MTE5MWMxZDRhOGY5Y2NmMzVhODZlOWRmODg4YzQwNTJhMTYwOGViNDczYmQ5YTcyMjFkMjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU3YWE0OWE4YmZhMTg4ZTg2MGE4ZjQ5YjM5ZWRkZWQ5MDE1OTA1ZGEwYjYxZWYwMGQ1YTM4NTJiYjI5ODY0YWYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY0MmExYjZmNGRmZjQ2NjQ2YjhlNzYyZmU3NjlkYWE3OWNlYzhkMTI5ZDlmMjExYzEwN2UyMTU4MDIxZTBkYmQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBmYTlmZjM0OWNiNGNlODQ0M2Q3OTIwMzkyMjljZmYzNTZhNWJjYTQ0YzkwMzhhYzMyZTFlMWEyYzhmYzRiMTUifQ"
+        },
+        {
+          "resource": "repo://libs/evals/tests/unit_tests/test_harbor_langgraph_agent.py#L702-L800",
+          "version": "repo-lines-v1:sha256:92ec2fe60775ca57588b779bbae13ecb6ccc52d02f4a5d2795f8279c78ea85ac:eyJzZWxlY3RlZExpbmVDb3VudCI6OTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE3NGM0ZDI5YTllMDQwOTExMjVlNjViZTk0NzdkMDk3ZGQ1MmJiOTFjYjMyYzEyOWYwNjhjODQ3YjljNmMzNzEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYzFmMTg4ZjE0MmVkN2E4MjQ2ODBiMjA3MTcyYzU1MTliYzYxNGE0OGZkYTdjZjE2N2VkYjhkZGY3OTk1NmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImRlZTM1ODBmNzJjNTdlNjQyZDdlNzE3NTI5YzM2NzkwNDY2NmM4MmM0NDQ2ZjhhOTNiZDcxZDAzNTExMmY2YmIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIxZjkwZGVmNjVkNTg2YTliN2I0MTY4MGE4ODg0MjBjN2VjYTViNzg2YTk5ZTlkYzBjZjIzODZkNWJmZWFjNDgifQ"
         }
       ]
     },
     {
-      "id": "claim_a0d88780e40b44bb8abeafa878079806",
-      "statement": "The trial aggregator aggregates only numeric non-null metric values, reports sample standard deviation as null for fewer than two samples, and warns when a mixed report set identifies different model or SDK versions.",
+      "id": "claim_bd3d88f2c1214bc7bae7f082755ae61d",
+      "statement": "The Harbor graph builder defaults OpenAI models to the Responses API, applies a high reasoning default only to exact GLM-5.2 profiles when callers provide no reasoning control, and applies streaming, retry, and timeout defaults to Fireworks models without overriding caller kwargs.",
       "evidence": [
         {
-          "resource": "repo://libs/evals/scripts/run_trials.py#L173-L225",
-          "version": "repo-lines-v1:sha256:8fcc331aff7d6dd84387befa3d59204cb1a10eaecd7c4dbd85696f2377ae57c3:eyJzZWxlY3RlZExpbmVDb3VudCI6NTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRmMDZjMzhlYTc3OTc0NjU2YmQ4ZTlmMzE3YjIzMjJlZWUyOWNiOWQ1NWVkMjE0ZWI1MjJmY2RhYjJmNTdjMjEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBkZDljNDllNmQ0MGZjM2MzZjJkMWY3OTczMWVmYzI1OWYyNWZjZjFjZDVlY2IxNmQ3NGNkNTEzZDFkYWEzMDUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImRkOTczODYxYWNiNTc3YmU5OTc2YTdiMjg1MDZlZGI5NjZlNjA2ZWZiYmEyZjIyNWVhZGRjOTc0NDE2ZTczNGYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjA4NTlmZmMzMzE4NTVjMGIzOWI4Yzg0Nzk0MmFhMTA2ZGY1NGM4M2U4Zjg3ZjFkNDU2MjE5YTIxYjc2ODZhYTIifQ"
-        },
-        {
-          "resource": "repo://libs/evals/scripts/run_trials.py#L94-L119",
-          "version": "repo-lines-v1:sha256:4af6c8922b22d3d527dbeae6c76e4bdef830064e348ed71c93d9444309adf06f:eyJzZWxlY3RlZExpbmVDb3VudCI6MjYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ2Zjc4OTNiYzc4OTg4Y2VjMDA0YmEzYTlmNzY2MmFkZGQyNjhkZDQ2ZWRkNjMxZjlkNzY3MzVkOGQ4YWY4NTAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYzFmMTg4ZjE0MmVkN2E4MjQ2ODBiMjA3MTcyYzU1MTliYzYxNGE0OGZkYTdjZjE2N2VkYjhkZGY3OTk1NmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjBmOGNmNmU2MjBjMDg2ZDAzMTIyYzIxNThkMTY2ODZkMmIzYzBkZGE3YjY1ZDdkMjc4YjVkNWFlOGE2MDMxMmIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImEyZTA3YzA2NzhkNzBmMDRjM2U0Mjk2NjBkNGVlMjQ4ZmM1MTRkMWYzYThlZjZkNmYxNTFiY2UzNTczYWRjY2YifQ"
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L143-L200",
+          "version": "repo-lines-v1:sha256:e2bd26841ea69aee2bc64f8d5f9d29842c98b45e9443d093ef55c0c0d99b7a75:eyJzZWxlY3RlZExpbmVDb3VudCI6NTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM1MWJlOTk0NzQ5MTUwM2RhNWRjMDhkNjQ0M2Q3MWE0MWU2MzhlNDliZjM4MzRhMzc1MDYyOGM0ODEyN2EwODAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFmOTFkOTRlMjAyZTBhNjI2YWQ2ZDc3ZDNlNmM2MWJjYzRlY2I3MmEyNGRkZmRiZjY2MWY0NzBlMWMzZGM2ZWEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI5ZWUxOTMyODRlODJmYjc2YWY0ZjRmNTgzZTQzZjA1MDdiNWYxMzJiMTY0ZTZkMzUyM2JhZmI5NGMwYzdiMWUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImNmOTU0ZTYwZGIwMmY1YmJiZWVhZmI3NzI0YzM3OGQ4ZDM0YjJhNzhmOWYzNzRlYTkyN2EzMGY0MTkxZGY4NTcifQ"
         }
       ]
     },
     {
-      "id": "claim_1cb63272134c49a590fd4574c571334f",
-      "statement": "DRBench task directories are generated from a pinned upstream configuration rather than committed, and the Makefile supplies dataset creation plus deterministic-generation and pin checks.",
+      "id": "claim_6a211438e9934b2e95d7a72492fc9243",
+      "statement": "The Harbor dcode graph derives a filesystem-safe assistant ID from HARBOR_SESSION_ID: valid IDs at most 64 characters are preserved, while normalized or overlong IDs receive a hash suffix and missing or unusable IDs fall back to a UUID-based harbor ID, preventing normalization and truncation collisions.",
       "evidence": [
         {
-          "resource": "repo://libs/evals/Makefile#L118-L138",
-          "version": "repo-lines-v1:sha256:9dbccef6a9199b9bd66a7de732354df748d661725b1279174be94f8e459fc1dc:eyJzZWxlY3RlZExpbmVDb3VudCI6MjEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNlN2FjZDkzMjRmNTEzN2Y1YTI2OWVkMWU4NWFkODZkYjRkZjBkNTgyMTAyYWRjYjM3ZjMzMzE3MjBkOGRmNjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJlY2IzODFhYjc5MmQ4MjNmMDEzZjgyYzcwNjdmY2YwNjE0NTZjY2I2ODU2ZTJmYTNkMzZkNDA2ODZiZjhlYjYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQ2MDBkYmNkMjM4MjMxZjNmMTFkZjZhYmMxZTM1NjVkMjU1YmEyYjYzYjQzYTQwYzQ0YTY3MzA2MDU1MzgyODIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjU3MDU0ZGJkMTA4YzFjMmZkZjZiZDVhODdjNTI0Mjg2MzI3MmI4N2Q5ZmQ4ZWU1NzM0ZGZmMWY3ZjhlZDBiOTgifQ"
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L237-L254",
+          "version": "repo-lines-v1:sha256:6d2103e144ddc3ee8f80ca1e281aabffaa1dfcfd465937d78d8c176605108d8e:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU5MjMyOWJhY2QzMGVhMGYyZTE2NGQ2NjE4MWY1MGY4MGY3YWRkMWE5ZGY0NGNmOWU2N2IwMDQzZTkzODczYmYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhiZjMwNmYwMWU4OGQ3Yjc1OWJjMWE0MjM1ZWNiZDA3NmM1Y2I0ZDE4YWVhODZjNThlNzcyYWI4M2FiNGM4MjAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjliNTU5YTkyOWRhMzYwZTUwNDFlYWY0ZjEzNTE1MDY3MDMzMjIzYmVhOTkxZWVhZTk2Mzc3ODYzNGNlNGY1ZDgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ4OTliNTdiMjc3NjVjMGE1NTkwOGUxYmUzN2VlY2IwZmRmNGFiODY5YWMwYTU4OTk2NzA0YTE3YzIyZWZmODUifQ"
         },
         {
-          "resource": "repo://libs/evals/datasets/drbench-evals/README.md#L144-L168",
-          "version": "repo-lines-v1:sha256:58b8afe6a97913f0d271834f787678139c6985d305dbc0bd4b24a1c7ced6e28f:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk4MTdhODZiZmY4ZGUyNzUwODJkOTc2MTJlZjg1NzVjZWEyMDZmNjAzMzhhNzBkNDdhZDM4ZjU3OGY5ZTFhNTMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUyZGQ4Yjc0ODc2YzdkMTk4ZTZkMjJmZjdmZTQ5ZTZkNzY3NWE0ODY0MWE5OGI4NDQ5ZWY5MWEzODA2NTQ0ZGQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQ4MzdmNjFiZjA0ZDVjMzAzZjU3MGViMzNkYTE1NjM5MTNiYjJiOTAxNTJlMmUxNWNkNDNlMjllNzBiYTRmY2UiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg2NGEyYjRkM2U3MzE4ZjM5ZGU1OWEzYzI2NmU1NDU3M2NkOWRmNGU5MTAzNjVjOGVjOWVlZWNiMTI2YTUyNjIifQ"
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L32-L34",
+          "version": "repo-lines-v1:sha256:352f31c9e392c855eaa708b77cc3b6657490dfe557b6e4e38d90090860f32607:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTJhMTQ3N2NmNzUzYzI2MmQ5MDRiOTU5MGQ5M2Q3MTgxOGIyNWM5MmQzNGMyMzI0NjlmMzBhODQ1OGRhMzRjYiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjljMTU5ZmY4NjliYjA4MWY4Y2JjOGNhNzYxNzgxZTA4YWMzNDFiMDRlZGZmZWVkZmIzM2VmNTZlZmVmMzZmMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTVjMWM0NjJlMmEzOWQ3NDc1OWY1ZTFiMTI2Zjc2ODNhMmI3MzAxMThlMThmNTEyMmIwOGNlZGVlYjY1MGUyMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDJkNTcyMmUzMDQ0NTk1NWM0M2Y0MzgzYzhkMmU0MjA1NDBjYjM2ZDUxOTk4YTQxMWUwNTM1Y2Q1ZjgyZmUwMyJ9"
+        },
+        {
+          "resource": "repo://libs/evals/tests/unit_tests/test_harbor_langgraph_agent.py#L177-L242",
+          "version": "repo-lines-v1:sha256:eac1832738abe18636c05e6bac8d528b4d19fe1810097b8db9133c0d7084233c:eyJzZWxlY3RlZExpbmVDb3VudCI6NjYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUxNmM2ZDZhY2I1YTMxYWY5YmE4ZTllZmIzMzZkZjNiODEzNWU1ZjAxMjVhMDM0Y2FiODcwNDhkNDM1ZjAyMDAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYzFmMTg4ZjE0MmVkN2E4MjQ2ODBiMjA3MTcyYzU1MTliYzYxNGE0OGZkYTdjZjE2N2VkYjhkZGY3OTk1NmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFkYmMxMTMwZWU0NWU0ODZkODNmODYwMjAyMzBmNjJjZWI3NTIyNjQ3ODY0YzIyNmExNDkzZDczOTI1NGFiYWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY5YmVjZGE3NzMyM2E3M2U0YTE2NjI0NjNhODg3MDU3OWZjZmFjZWRlMGVjY2M4ZDAwYWNiYjM4MmIzY2Q5NjUifQ"
         }
       ]
     },
     {
-      "id": "claim_bfc36dda696040a1bce206192b693d48",
-      "statement": "Deterministic product regression tests are package-owned: the deepagents and code Makefiles run unit tests by default with network sockets disabled except Unix sockets, while their integration targets select a separate integration-test directory.",
+      "id": "claim_7c56d78dbaa24b8196cdf0c267b1eda7",
+      "statement": "Before building the dcode graph, Harbor populates dcode's process-wide runtime model identity from the selected model spec and resolved model profile, including context limit and unsupported modalities; missing or malformed profile data is cleared and logged so identity from a prior graph cannot persist.",
       "evidence": [
         {
-          "resource": "repo://libs/code/Makefile#L14-L28",
-          "version": "repo-lines-v1:sha256:037c95ac5b5ad1444a320c1204311380507059ee1b63cc83995602bcad2a3b29:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA5ZjNhNzI0MWE2NmI3NjAwYjM2MzViZmQ3NzE4MGU4NDY2YTZkMzYxZDRjOGY1ZTg4ZmEzMWFlNTgyMTZkN2QiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIyOGU3YzAyNGQ4MTg2NDQxN2NjY2I0NjU4MmVkOWJhNzM5YWM2OWZkZjA2YTgwMDE1NWNjM2ZlZjkzNDQyNjQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc0ZWJhYzU1OWIxOGIxZWE4ZTkxZWUzMGM3YmE0ZWMxMGY4YTU5OGQ5NDNkYThmZDI1NDRkMzJlNGZlZWYwMDIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM4YjgwODdhODcyMDYwN2RhOTNhZDY4NWE4NDU3OTQ1M2JhOWQ2ZGU3M2I5ZTk0NTkxNGMyZjhmYzJhYjI0YWEifQ"
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L257-L327",
+          "version": "repo-lines-v1:sha256:cde3c51dc76f17aa73dca111cdcb3c66701e0e6386832d80d3b717a4ae4e4586:eyJzZWxlY3RlZExpbmVDb3VudCI6NzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAyZDRiOTI1ODA1ZjIzYzg4ZmE0ODFlMTI1YmRkMGM3MGVhZTZiY2I5YjU1NzNkMWUzYzU2YjhhM2ViODg5ZWQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYzFmMTg4ZjE0MmVkN2E4MjQ2ODBiMjA3MTcyYzU1MTliYzYxNGE0OGZkYTdjZjE2N2VkYjhkZGY3OTk1NmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjA5YzlhYTAyOGViNTE5ZTc2ZmEzNTFlNzFmZGIzOTM3OGViOGE1MDBlY2JiMjA0ZmFiNmIwMTAwNTJmMzVmM2YiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJmMjdlNDVhMDg0ZGQ1Y2IxNTdlZTk4M2M5ZTY0NWUxMmMxNWIwNDllNzAwNTY5NThlZDVlOTY5MDJlMDVjMDkifQ"
         },
         {
-          "resource": "repo://libs/code/Makefile#L37-L39",
-          "version": "repo-lines-v1:sha256:83f12a754cc76be6315744c0c91e5221e406b996ef6855eca1fb3849cedc1666:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzE1MDY4NzI1YTA3NTQxNGIyYTBjN2JjY2EzNjI1NWM5ZjZmZGFjNTUxZmYyZjQ1NmE3ZjI5MGI2MWQ3Zjk3ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiM2IwZGE2ZmRhNWZkZGQxMzhmNWYyM2EwZDZkOTc4MGE3ZjU5MmMxNDBiN2M4Mjk2NWY4MmU4N2VlNjE1YTQ0NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGQ4NmM0ZTY4ZmE4NDY2ZWVlYmQxNzI1NTIzOWZjNWJhMWI4ZWExOTY2NzVmN2U0YWFmMzUxNjFlODJhNGM3NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNThiYzkwMjA0MzU4NTY2ODhjNTgyOTI0MDA4NWIwMjVjZDIxZmM2YWJkMjQ1OGM0MzdlNDhiNzdjNmI5MmE4MiJ9"
-        },
-        {
-          "resource": "repo://libs/deepagents/Makefile#L12-L23",
-          "version": "repo-lines-v1:sha256:1fb3d089402552eb0f462f707dd34f17374eecbfe36c609676850913de559ba9:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA5ZjNhNzI0MWE2NmI3NjAwYjM2MzViZmQ3NzE4MGU4NDY2YTZkMzYxZDRjOGY1ZTg4ZmEzMWFlNTgyMTZkN2QiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIyOGU3YzAyNGQ4MTg2NDQxN2NjY2I0NjU4MmVkOWJhNzM5YWM2OWZkZjA2YTgwMDE1NWNjM2ZlZjkzNDQyNjQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc0ZWJhYzU1OWIxOGIxZWE4ZTkxZWUzMGM3YmE0ZWMxMGY4YTU5OGQ5NDNkYThmZDI1NDRkMzJlNGZlZWYwMDIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU0M2E3OGIwMjQyZGQ5Njk2ODg1NmNlODU5ZjM0MTcwYWZkYTI3MjVlNWYyYjllYWJkNGE0MzE3ODI1YjEyYTAifQ"
-        },
-        {
-          "resource": "repo://libs/deepagents/Makefile#L36-L38",
-          "version": "repo-lines-v1:sha256:c76d7ed2f2be98f05a12300740d12f07d8885f411c9bbde0ca75360937ecb8ae:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzE1MDY4NzI1YTA3NTQxNGIyYTBjN2JjY2EzNjI1NWM5ZjZmZGFjNTUxZmYyZjQ1NmE3ZjI5MGI2MWQ3Zjk3ZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjA1YTM4ZDM4MzhmOGQ5NjhhMTAyMzIwNjg4YTU0YTZjNmY0MzQxMWQwMmU1ZGQyNDNhMGU3ZDhkZDg3YTA3NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMGQ4NmM0ZTY4ZmE4NDY2ZWVlYmQxNzI1NTIzOWZjNWJhMWI4ZWExOTY2NzVmN2U0YWFmMzUxNjFlODJhNGM3NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjRhYzlmMWYzOWYwZDg5YmE3OTMyOWEwZTdkNTQ1YTFhYzExNTI4MzY1NmMxYTNkOTU4ZTEzMzM1YzgxYzJlZSJ9"
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L330-L388",
+          "version": "repo-lines-v1:sha256:c37335bd99e422b3ec468471faab9e3b4bd9d7bdbd3ba201e6212c918f6cd9d7:eyJzZWxlY3RlZExpbmVDb3VudCI6NTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFhNDJlYjhiY2U3MzE3NWU3YzBiYzRlNWU2YmJlOTg5YWQ3NzFjMjI2YWEyOTc4OWRmZmFkMzAwYzdhOTUxY2YiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM1N2MzOTMyNmViNTE0ZDQzNjJjZGVhYWRjZTE0YzQ5ZmYwYjMwYWFmZWFkMWFmN2JiNTQ1ZmNhM2FlZmI0YTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhjYzRhN2QxY2M3OTZhYmEzZTQ2NzIzMzI3ZjUxN2U5ZjgxMTk4MmQyNTBmMDcwMjk4NmU0YjU3NjRhZDk1ODkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBlZjYwNTBjMGZmMjIyMzQ4ODE1OGQwNDQ1NDkxMjc4MzY3MzUwZTAzOWZjN2E3NGVhZmFjZDI3ZmZhOWNjNzAifQ"
         }
       ]
     },
     {
-      "id": "claim_077e5eb4f281434ca1ac85ae2165b600",
-      "statement": "Performance benchmark ownership is also package-local: deepagents, code, and partners/quickjs define `benchmark`, CodSpeed-instrumented `bench`, and `bench-memory` targets, while libs/evals has no bench target and the libs-level `bench-all` fan-out includes only deepagents and code.",
+      "id": "claim_dccf4544b98747489acfce91d0e8c7d9",
+      "statement": "Harbor offers Tavily web search only when TAVILY_API_KEY and the Tavily package are available; it bounds calls to 1–10 results and 20,000 rendered characters, returns tool text on search failure, and the reusable workflow forwards and requires the key only for research leaves.",
       "evidence": [
         {
-          "resource": "repo://libs/DEVELOPMENT.md#L198-L215",
-          "version": "repo-lines-v1:sha256:43266a1bf4e1b75027c98c24e662d154e4af83b5cec9206a6278107171b02110:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI5M2JiOGY1NTJjZTNiN2ZkNjU3NGE3OGQ3MTFhNWViYTE4ZTRmYjBmODM2NzIzMWYwZjAxMWMxMWZhOGQ1ZGMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ3YzA2YzU2MWQ1YzMyNzM0MzY4NTI2OGE0NmIzMzkxZjM5OThlZWU4OTBkMmJlNTFmMGQyMWNjNGE1M2FlNmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjdkZGM1MGJhYWRmN2RjMDQ1OTdhYTFmMTAxYTdlMDFhOTk2NTcwZjllMjc2YTMyNmI1OWFhMDc1MTQzOTVlZjEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjU4ODk5MjllOTVkZGY4ODg2N2FmZjc5NDViNmYwNWU3ZWY2Njg0ODUyYjllMjdhNzgxZWM3M2E3MDFmNzdhN2UifQ"
+          "resource": "repo://.github/workflows/_harbor_run.yml#L1029-L1042",
+          "version": "repo-lines-v1:sha256:f3b5c33cd46062054fca0f5c2d3df40b1a88fcbe790fceb638d00ab2aa96ce0d:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBmOTliOWJkMzkzNjZkMDA3YzY1OTc0NmRmZDIxN2FiM2FmMzhjZTlkNzgxMTA0YTMyNGMzMDNmOGY4NTQ3YTkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJmNTU5NzljZTczMDIwMzNlNmIyZmQ3ZDg4ZjUzN2EzYjhlMDkxZWEzMDVjODExZmZhMTI3NGJmNTc2NGVhNWUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImEyOTlmZWRlMGRmYTBkOTg2YjAxNDJlOTI3NjNkN2EwMzNjNGM3ZGQwYzAzODBhNmYyODZhMzQxN2YyMmNlOWUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjA2Y2I1YzM3NDFjMzg5ZTc0ZTEyYzc2MDQ0MWE5MzlkMmZhNDgyODA1MmNjZGEwZmE3NGQ3NGM4OGM5ZDhiYTMifQ"
         },
         {
-          "resource": "repo://libs/Makefile#L10-L15",
-          "version": "repo-lines-v1:sha256:09a7684168318c78928189a6fd6eb5fbc6fb4cd2ca807bf105e084259e88f940:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNDk4YmNkNTBkMzlhNGRmOTQ4ZThhYjg5ODRhMjQ3Y2RiNjMzOGQwN2VmODFmYWExNDhmYTY0M2ZlZGM5YTM1MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMDFiYTQ3MTljODBiNmZlOTExYjA5MWE3YzA1MTI0YjY0ZWVlY2U5NjRlMDljMDU4ZWY4Zjk4MDVkYWNhNTQ2YiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGE3NmE2OWI2OTM5NmUyMjBmZWU4ZDk5ZDIwMDcwMzE5MzhjMDQ0MTYwNmZiNmU5MGM1OWQ0OTI4MTE0MmQ1ZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOGJmODUyMmEwYzUzMmE3M2VmMjQwMDg5MWRjNTU2MWRhNDY2ZWQzZmY0MGY4MzFjNWQ5ZWJlZDM5NmNiYTljNiJ9"
+          "resource": "repo://.github/workflows/_harbor_run.yml#L461-L467",
+          "version": "repo-lines-v1:sha256:d4599c27e080940f6ca5ab0c9fa1482895c462ba303105dd9ed3a006e230ca7f:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZGZkMzMyNmY1MDdiMGVhNWZhZGMwZGU5MTNhM2U4OWNlZWQyZTI1MDUwNTY1MzA0OWIzODIzMjIzM2MwNjc1MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmY1NTk3OWNlNzMwMjAzM2U2YjJmZDdkODhmNTM3YTNiOGUwOTFlYTMwNWM4MTFmZmExMjc0YmY1NzY0ZWE1ZSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMDU4OGVlMmFhOGYzNmY2NGQ2MGM0NzliZDg5MGEwMWU3NDk0NDk0YzBkNWMxNDc1OGZiNDU4OWI3MWZhOGFkYSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDc2MTRhZjM3NWM2YzkxZTA2NDU5MzA1MzRkNGQ4ZGYzN2E1OWM0NGYxYjUzYjVlMTM4Y2M1ZjFjYjEzZmFkYyJ9"
         },
         {
-          "resource": "repo://libs/Makefile#L71-L76",
-          "version": "repo-lines-v1:sha256:b5deef82bc8bcda069523b60c4bc46ca0b820c21a0811cc4426f391bd16e2ea7:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNjAwMmQ0YjI0NTU0OWUyZjg4ZjZlMjM2ZDk0N2VmYWVkMGY3MjQ2MmZmNTc4MWE0NmU2Y2U1ZTY1YjE0NTJlNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZDg5YTBmYjIxNzFmOWI1OTRiZDJmMDljNDAyYTBiNTUyZGI2M2I1MGVkMGE3MTU4YTMxZDMwYWVhZGFiNWMzOCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNDM0MjJiYTgzNzU1ZmRmYTBlNjQ5NWVjMjM2NTE0YzE4ZjYxZjc0ZGU4MTFmNzM2MmZlNGFhMmQ0ODUyNmJmMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
-        },
-        {
-          "resource": "repo://libs/code/Makefile#L44-L51",
-          "version": "repo-lines-v1:sha256:37f4d43a843fcc92808894c4e5b81b33ba55e67d252157029b8c2ccb1cb15913:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGNmYjhkNWE5MmM0YzkyMWQ2ODkyNmVkZTFlNTY3MzYxMzExYTMzZDg0MmQ1MGRjZDU1OThhZmI5NzVjMGEzMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODQzNDJkM2Q4ZDI4Nzc0NjdmNmQ0OGEzOWJkMDMzZjMwOWQ5YjE1MTFiMDkyYzhjZGUwZDY1YTYyOTBmMjk4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzFlOWM1N2M1YzcyZDY1Mzc4MWZlNGEzYTk5OTZmZGE0NmZhM2Y3ZjBkMzQ3NmJiNzU3ODY2YTdmZjMzYWEzMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGQ0MWU5NDFiODE2NGZlYmUzZjBkZTk3ZWIzMmEzOWQwOGY2MmJiZDYwZGI2MjhkYzc0YjU4ZjFmOGZkMjIxMiJ9"
-        },
-        {
-          "resource": "repo://libs/deepagents/Makefile#L44-L51",
-          "version": "repo-lines-v1:sha256:e855bcdcab5b78d0e79b930cb51d1123fc25691b0a48e75caf1bbfea8973ee3d:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGNmYjhkNWE5MmM0YzkyMWQ2ODkyNmVkZTFlNTY3MzYxMzExYTMzZDg0MmQ1MGRjZDU1OThhZmI5NzVjMGEzMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNzNkYzM5NDRjMzY3OWFjYzM4NGZmOTI3MzA4NWE4MTQ1NDFjMDUzZjYyYTcyNDlmYzc0NTBlOTk1YzEzOTU1NiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzFlOWM1N2M1YzcyZDY1Mzc4MWZlNGEzYTk5OTZmZGE0NmZhM2Y3ZjBkMzQ3NmJiNzU3ODY2YTdmZjMzYWEzMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZGQ0MWU5NDFiODE2NGZlYmUzZjBkZTk3ZWIzMmEzOWQwOGY2MmJiZDYwZGI2MjhkYzc0YjU4ZjFmOGZkMjIxMiJ9"
-        },
-        {
-          "resource": "repo://libs/partners/quickjs/Makefile#L36-L44",
-          "version": "repo-lines-v1:sha256:c802229f424d8a35b8b376ccaf76a1f6199b36bbe6d8ba141394b070e3a5287e:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOGNmYjhkNWE5MmM0YzkyMWQ2ODkyNmVkZTFlNTY3MzYxMzExYTMzZDg0MmQ1MGRjZDU1OThhZmI5NzVjMGEzMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiODQzNDJkM2Q4ZDI4Nzc0NjdmNmQ0OGEzOWJkMDMzZjMwOWQ5YjE1MTFiMDkyYzhjZGUwZDY1YTYyOTBmMjk4ZCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYzFlOWM1N2M1YzcyZDY1Mzc4MWZlNGEzYTk5OTZmZGE0NmZhM2Y3ZjBkMzQ3NmJiNzU3ODY2YTdmZjMzYWEzMiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjQzODNkZWQwMzYzZGEwYWI1MTQwYzkwNjNmZDViNjE3NzUxZWNkMmY1YWIwODNkMzQ4OTA5ODYyYThjNWYwNyJ9"
+          "resource": "repo://libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py#L414-L465",
+          "version": "repo-lines-v1:sha256:2d3b471a78e51274c5ea526ecf0de46f9b5c127549295108c41161561141a673:eyJzZWxlY3RlZExpbmVDb3VudCI6NTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI5ZTJhNTg3YzM0NGNhN2M0MjQxNmY3NzU0Mjg0NzNkN2RlMDQyZWE2MzNmN2UzMzVjMzhjMzJkNDYyMTczNjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFlOTE4ODRkN2Y2YWY1Mzk4ZTBhNjU5NDc4ZTRmNGEzYjg5YmIyOTkyYjNlODVlZTAwZmVlNWM3Y2E1OWZjYjciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQxZjAxNTIyY2FhMjgzM2U1YzhiZDkwNzVkN2Q0MWQxMjA4YjE5MWI3OGFkNzZkM2ZiZWNlZjBjOTI2NDM5ODYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFhODJlYzZmNDE0OTg5MDliYTVlY2Y0NmM0M2NkNDMxZTQwZjhjNmJjOWE3MDU2ZTI0YzhkNGUzNjM2NTE0NDcifQ"
         }
       ]
     },
     {
-      "id": "claim_5ac59dc49ee343a195d4dbee14f79393",
-      "statement": "The reusable benchmark workflow installs a package test group and invokes its `make bench` target through CodSpeed in wall-time mode using OIDC; its memory step is conditional on `has-memory-benchmarks`, and the daily/manual nightly caller currently runs only deepagents and code.",
+      "id": "claim_f4d8b2d6014f48ae9f926816aafa8110",
+      "statement": "The reusable Harbor workflow either expands a single-model shard matrix or passes through a caller-provided flat matrix, uses a positive max_parallel override or shard_parallel pool, and aggregates flat leaves separately by category and agent implementation.",
       "evidence": [
         {
-          "resource": "repo://.github/workflows/_benchmark.yml#L34-L72",
-          "version": "repo-lines-v1:sha256:ac35fa46029eb5f131846bc83e8a25afb936a05bcab19e87440d05a1ad6a0b11:eyJzZWxlY3RlZExpbmVDb3VudCI6MzksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU5ZDgwMTU0ZWQ0MmZjNWM3NzliMTMzMTU3OGI1OGI4OWM4MDFlYWNlNzRmMjRjZDQ4ZWI0YTIzNTc5NDBhOTUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkzODc5OGFiNzMwMDdjNWQ3YTdmODI2NTJhNzA4ZTg2OTNjMjE0ZmFlNDYwOWY1MzY5N2M0MjE0MTc0NzNkODkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjRiNjUzNTk1OTcwZDhiYWVkNmIzMTAxMmYxOTdhYzdkM2M2M2E2NWRlNjY1ZWYzNjNmZjkxNTNiZmIzYjM2ZjIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+          "resource": "repo://.github/workflows/_harbor_run.yml#L145-L190",
+          "version": "repo-lines-v1:sha256:3a5feec4016d758d0a057e52460d799e864d37c0ad1c6aef292147ffa401802b:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM4OTQ5YTMxYWRhYTc5MzY5ODhhMzcxNDdkOTA3ZTViOGUzYjM4Y2U1NWM3OGU5YjZlNmE4MmUwYTJmZTc1ZDciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBhMGVjMTU5NjBkODEzMTA4MjU4MTUzOGVkNzBiZjExYTRhZjVkZmIzMmE4NWU2YjdmYWNmNzk1MGFiOTI5MjUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZiY2EwZGEwNTkzYTZiMjI3ZjY5OGVmMTQzYjU5YTFkOTYwNDg4MWYyMTRmODFkMDJiMTRiNTRjN2U5Y2YwYmYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFkZjFjOGVhYmU3MzQ1MTE3YzM2NmQyOTE0YWExMDlkNjJiNDQ0YjBiZWJlZjY1MTNiM2MxY2QwNzViOTZlOGIifQ"
         },
         {
-          "resource": "repo://.github/workflows/_benchmark_nightly.yml#L1-L39",
-          "version": "repo-lines-v1:sha256:0259d65e3b0c920e2665b9c2fd5c552a86e8c1f7d21b4d8ce266090e0bb17eb4:eyJzZWxlY3RlZExpbmVDb3VudCI6MzksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjRmYmJkMDY0NGVhYmI1NTYyZjJjY2MyMmFlMDA2ZjAxNjNiMTk3MWM2OWYyM2EyNzZmNGQ2NmEwN2VkMjcyYTQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU5ZDVkZDNlOGEyNGQ1Y2VlMjhlYTIzZjdiNTRlYWY1MjQ2OGZmMWVkY2FhNWVmNTg5NzBmMWQ5NWYxMjRmNWMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+          "resource": "repo://.github/workflows/_harbor_run.yml#L192-L265",
+          "version": "repo-lines-v1:sha256:5e0bcad9070a81bdbd139fa9a8d846e8422e31eadae4268ec0ba52a2facbe365:eyJzZWxlY3RlZExpbmVDb3VudCI6NzQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjA3ZGQ1YjM0M2RkNWQ4YTYyNjVjZGUzYjk5OWVhNTU4OTE3NGIwMzkxZmQ3ZjA0MmZiMTA1YmNiYjY1ZmRjNGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg2OWQ2YjRhMDUzNzVkNWM2NzQ2MTgwNzVlOTkzZDJmZWFhNGU1MTAwZWQ1YTkyMjMyODlmMWJjOGIzNzQwYzAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAwOWRjZmFmNTA1NGRiNWRmODcyNzhmNTFiMWZlMDUwN2IxODE1ZjhmZThjYzM1YTgzYmIzNmRhM2Q1YzRhZTEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU2OTQ4NGY4NGNmNzgwYTIxOTMzZDUxNWY0NWI2MzEwY2ZiNDU0YTljYWJiYjM4MmFjOGQ4MzNkYWFjOTcxYjQifQ"
         },
         {
-          "resource": "repo://libs/DEVELOPMENT.md#L217-L221",
-          "version": "repo-lines-v1:sha256:9fef1ac6b0aeac98a74db40511c5f88e902a81184dfa41d49f0a31bb4adb465f:eyJzZWxlY3RlZExpbmVDb3VudCI6NSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWQ2YzY5Y2ZjYTQyNzI0MzgyYmJiZjdkOTY1YjJjZGUwYzBiMjAxY2FkNzUyNWU2M2U2MDIxYmFmMTk3NDE3MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTJhMTI4ODA4OGNmN2JhOTE0YzUyZjcwZmEzZDYwM2QxNDQ3NTc4ZjBiZmJlNzlhOGFjNDczOWU3Y2RlZWYwMSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGRlYTZiNmRjMDQ0NjU4MjNmNTdhOWM4ZTg2NmQ4NDYxYjBkMTQ3NWE0ZTg0M2M5MTU2OTRmZjc5YTFjODIzOSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYWFlZWY5NTdlMjE4MTNjMTBmY2Q3M2EwYWYzOTE2NjEyODQ1NTA2NTExMzQwYjEyZWIzYTNkMWZjZmVlODAzNiJ9"
+          "resource": "repo://.github/workflows/_harbor_run.yml#L350-L353",
+          "version": "repo-lines-v1:sha256:1a53b44253bd0c61f4e6499158b1aca87f81afb52acffdb2968df4dc3152ff85:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNWExM2ZjM2M0ZjhiM2VjOTlkYjM3NWNiYTViOGYxNTVmM2M5NGJkNmE3OTFiMTBhMTBhMjY4MDg4MGI0NjU1MyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZmVlYTdkMjkxMTg1NTUyYTE2YTZlMmEzNTBjOGU2NGY2ZWE2OGU5ODZlMDQzYmUzODczNmEwYzRiNDdiZDY2NyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNGRlYzFkNzgyZjM1MjRmMGY1ZGU5NzE0MGRmNjUwZTYyZmNjMWJlZTllZmE2ODAzOWQxZDFlZDliNWRkMzdjZiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNTBlMzM1OWUxODJhYTc3YTM4N2I0OTE0OTlmMDJmNDdmMmJiY2NiYmEyOWRhMjM2Y2NlZDQ0NzAzOWJiZGI5ZCJ9"
+        },
+        {
+          "resource": "repo://.github/workflows/_harbor_run.yml#L40-L52",
+          "version": "repo-lines-v1:sha256:2d2efe36f55117b5897c69de2471c1b067789ec75bb4319e8482a49587ebd545:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdjYTRhZTgwYmI0N2RhOWU4YWE1MmQ5YWMyMzc0ODQ2ZmZlOWVmNjcwMjg4MjUxYTFkODkyYjdlOWJmZTEyZDUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNjNjZlNjg4OTQzYTViM2IzMzBhOTI5YjJjMGI4OGU5MTNkN2Q1YjM2ZTk0ZDgwMjUzNTY5NGQwZTYwODgzM2MiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI4ZmMyN2Y2MDU5MzkxNTJiNmJiZGRkNzE3ODE3NTgyZWY3ZWQ3YTIzYjIxZmQ4MTVlN2Q3ZjM5ZGU2NzBiZjUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjM5MjM5MGEwMzZhY2FiMTkyYzdiOGVjYzMyN2U2Mzc2N2Q1NGM3NjRhOGQwOTg1NmEyNDliYTk2M2FjNDA5YjkifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e0860493806d45a68dd314838abb8e2e",
+      "statement": "Harbor sharding applies include-task matching and the total n_tasks cap before modulo partitioning, so all shard task lists together equal the equivalent unsharded selection; invalid or unmatched selections fail, while a legitimately empty residual shard writes a marker for aggregation.",
+      "evidence": [
+        {
+          "resource": "repo://.github/scripts/evals/shard_matrix.py#L131-L186",
+          "version": "repo-lines-v1:sha256:720f27f164746350d3fce76a3a256ff25fb15dd9fb91368c118e244fb6483eab:eyJzZWxlY3RlZExpbmVDb3VudCI6NTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdmNzVhZDBiMTc0NGRhNzg4NzkwMWM4YTdlZmU3ZjBhYzVjM2VlOWRhYjk2MzMzM2EyODAzMDc0ZWMzNDJlNTIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMyNTBhYmE5MGIwNmZmYWZmMjJhYjhlZmJiYmI2NjQ5NGI3OTc0ZGRkYTVhMjEwNWQ2MTc5ODBmMjQyYzgyZjEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQwN2RmZjFiODA3OGFmYjViODAyY2MxODQ2YmVlM2M1OGIzNGYxN2FiZTk4ZjE5NjgwODc3Y2VlZDk2MjU1ZTQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjAwNWQ4ZjI2NGZhNWY1OWM2YzFiMDE4MDYzNDljZTBkMDE0NmE5ODAxM2JiZDBlODIzOGFlODJkM2EyOTM1OTYifQ"
+        },
+        {
+          "resource": "repo://.github/workflows/_harbor_run.yml#L859-L975",
+          "version": "repo-lines-v1:sha256:ef2e7b05253ec5494dd5cad4d7398bf00a728f1b12f46e927d895f1252ba8c04:eyJzZWxlY3RlZExpbmVDb3VudCI6MTE3LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJlMzI2ZTZhZGMwMjkzZGMzYjNkYzVhMWQxYzhkM2RhYWViZDliYjVkMzcwNWQxYmVhNmZmMzliYTI1Nzk5OWZiIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJiZjU1OTc5Y2U3MzAyMDMzZTZiMmZkN2Q4OGY1MzdhM2I4ZTA5MWVhMzA1YzgxMWZmYTEyNzRiZjU3NjRlYTVlIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiJmN2RkNjAzMDk2MWM2NmVkYTZkNDYxOTMyYjhhZjYxMjU2YWUyODNlYjQzZWY2Yjk5MmQ0NWFmODQ3OTJhMGVmIiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiI2MzU3MGVlMTAyMDdlZjkxODVkOGIzZjUzYzRiOTljY2Q1MDRmYzZjYjk3Zjk2OWQ0YmM1YWNiMWFiNTk0MWE4In0"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.4.2",
-    "at": "2026-10-21T08:05:42.350Z"
+    "at": "2026-11-24T08:04:12.461Z"
   }
 }

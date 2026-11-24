@@ -2273,6 +2273,19 @@ _STATIC_OPTIONS: tuple[ConfigOption[object], ...] = (
         empty_env_is_false=True,
     ),
     ConfigOption(
+        key="display.terminal_status",
+        group="Display",
+        summary=(
+            "Report agent status (working, waiting on you, done, failed) to terminals "
+            "that support OSC 7501."
+        ),
+        kind=OptionKind.BOOL,
+        default=True,
+        env_var=_env_vars.TERMINAL_STATUS,
+        toml_keys=("ui", "terminal_status"),
+        empty_env_is_false=True,
+    ),
+    ConfigOption(
         key="terminal.tab_title",
         group="Display",
         summary=(
@@ -2392,6 +2405,15 @@ _STATIC_OPTIONS: tuple[ConfigOption[object], ...] = (
         toml_keys=("ui", "debug_console_click_to_copy"),
     ),
     ConfigOption(
+        key="display.ask_about_selection",
+        group="Display",
+        summary='Show "Ask about this" for selected conversation text (on by default).',
+        kind=OptionKind.BOOL,
+        default=True,
+        env_var=_env_vars.ASK_ABOUT_SELECTION,
+        toml_keys=("ui", "ask_about_selection"),
+    ),
+    ConfigOption(
         key="display.collapse_pastes",
         group="Display",
         summary="Collapse large chat-input pastes into compact placeholders.",
@@ -2490,7 +2512,7 @@ _STATIC_OPTIONS: tuple[ConfigOption[object], ...] = (
         summary="Default model spec ('provider:model') used at launch.",
         kind=OptionKind.STR,
         toml_keys=("models", "default"),
-        cli_flag="--set-default-model",
+        cli_flag="--default-model",
     ),
     ConfigOption(
         key="models.recent",
@@ -2640,6 +2662,19 @@ _STATIC_OPTIONS: tuple[ConfigOption[object], ...] = (
         toml_keys=("tracing", "langsmith_redact"),
     ),
     ConfigOption(
+        key="tracing.git_attribution",
+        group="Tracing",
+        summary=(
+            "Run read-only git checks around checkout-changing tools to label "
+            "traces with the repository and branch worked on."
+        ),
+        kind=OptionKind.BOOL,
+        default=True,
+        env_var=_env_vars.GIT_ATTRIBUTION,
+        empty_env_is_false=True,
+        toml_keys=("tracing", "git_attribution"),
+    ),
+    ConfigOption(
         key="tracing.user_id",
         group="Tracing",
         summary="User identifier attached to LangSmith trace metadata.",
@@ -2691,12 +2726,25 @@ _STATIC_OPTIONS: tuple[ConfigOption[object], ...] = (
         env_var=_env_vars.OLLAMA_DISCOVERY,
     ),
     ConfigOption(
+        key="models.provider_tool_search",
+        group="Tools",
+        summary=(
+            "Use provider-native MCP tool discovery on supported OpenAI/Anthropic "
+            "models, directly or through LangSmith gateway; other routes stay eager."
+        ),
+        kind=OptionKind.BOOL,
+        default=True,
+        env_var=_env_vars.PROVIDER_TOOL_SEARCH,
+        empty_env_is_false=True,
+        toml_keys=("models", "provider_tool_search"),
+    ),
+    ConfigOption(
         key="models.openai_prompt_cache_key",
         group="Tools",
         summary=(
-            "Attach a per-thread prompt_cache_key to OpenAI-provider model calls "
-            "for reliable prompt-cache routing; disable for endpoints that reject "
-            "unknown request fields."
+            "Attach a per-install prompt_cache_key to OpenAI-provider model calls "
+            "so threads share prompt-cache routing; disable for endpoints that "
+            "reject unknown request fields."
         ),
         kind=OptionKind.BOOL,
         default=True,
@@ -3085,7 +3133,10 @@ _STATIC_OPTIONS: tuple[ConfigOption[object], ...] = (
     ConfigOption(
         key="plugins.auto_update",
         group="Plugins",
-        summary="Update opted-in plugins after the first prompt; disable globally.",
+        summary=(
+            "Check plugins for updates after the first prompt and install "
+            "opted-in ones; disable globally."
+        ),
         kind=OptionKind.BOOL,
         default=True,
         env_var=_env_vars.PLUGIN_AUTO_UPDATE,
@@ -3101,7 +3152,7 @@ _STATIC_OPTIONS: tuple[ConfigOption[object], ...] = (
         default=True,
         env_var=_env_vars.AUTO_UPDATE,
         toml_keys=("update", "auto_update"),
-        cli_flag="--set-auto-update",
+        cli_flag="--auto-update",
     ),
     ConfigOption(
         key="update.no_update_check",

@@ -151,6 +151,9 @@ def show_help() -> None:
     console.print(
         "  dcode uninstall NAME                      Remove an optional extra"
     )
+    console.print(
+        "  dcode completion <bash|zsh|fish>          Generate shell completions"
+    )
     console.print()
 
     console.print("[bold]Options:[/bold]", style=theme.PRIMARY)
@@ -479,6 +482,8 @@ def show_plugins_help() -> None:
     console.print("[bold]Commands:[/bold]", style=theme.PRIMARY)
     console.print("  list|ls                      List available plugins")
     console.print("  install <id>                 Install a marketplace plugin")
+    console.print("  reinstall <id>               Restore an installed plugin's files")
+    console.print("  update [<id>...] [--check]   Update installed plugins")
     console.print("  uninstall <id>               Uninstall a plugin")
     console.print("  enable <id>                  Enable an installed plugin")
     console.print("  disable <id>                 Disable a plugin")
@@ -491,6 +496,7 @@ def show_plugins_help() -> None:
     console.print("  dcode plugin marketplace add ./marketplace")
     console.print("  dcode plugin install quality-review-plugin@company-tools")
     console.print("  dcode plugin enable quality-review-plugin@company-tools")
+    console.print("  dcode plugin update --check")
     console.print()
 
 
@@ -646,6 +652,47 @@ def show_doctor_help() -> None:
         "     Run `dcode --version` (or `dcode -v`) for dependency versions.",
         style=theme.MUTED,
         highlight=False,
+    )
+    console.print()
+
+
+def show_completion_help() -> None:
+    """Show help information for the `completion` subcommand."""
+    console.print()
+    console.print("[bold]Usage:[/bold]", style=theme.PRIMARY)
+    console.print("  dcode completion <bash|zsh|fish> [--prog NAME]")
+    console.print()
+    console.print("Print a shell completion script for dcode to stdout.")
+    console.print("Regenerate the script after upgrading dcode so new commands and")
+    console.print("options are completed.")
+    console.print()
+    console.print("[bold]Options:[/bold]", style=theme.PRIMARY)
+    console.print("  --prog NAME             Command name the script completes")
+    console.print(
+        "                          (repeatable; default: dcode and deepagents-code)"
+    )
+    console.print(_HELP_OPTION_LINE)
+    console.print()
+    console.print("[bold]Setup:[/bold]", style=theme.PRIMARY)
+    console.print("  Bash:")
+    console.print("    dcode completion bash > ~/.dcode-completion.bash")
+    console.print("    echo 'source ~/.dcode-completion.bash' >> ~/.bashrc")
+    console.print("    # macOS login shells read ~/.bash_profile instead of ~/.bashrc")
+    console.print()
+    console.print("  Zsh:")
+    console.print("    mkdir -p ~/.zfunc")
+    console.print("    dcode completion zsh > ~/.zfunc/_dcode")
+    console.print("    # in ~/.zshrc, in this order:")
+    console.print("    fpath=(~/.zfunc $fpath)")
+    console.print("    autoload -Uz compinit && compinit")
+    console.print()
+    console.print("  Fish:")
+    console.print("    # fish loads one file per command name")
+    console.print("    mkdir -p ~/.config/fish/completions")
+    console.print("    cd ~/.config/fish/completions")
+    console.print("    dcode completion fish --prog dcode > dcode.fish")
+    console.print(
+        "    dcode completion fish --prog deepagents-code > deepagents-code.fish"
     )
     console.print()
 

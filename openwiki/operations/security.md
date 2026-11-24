@@ -1,137 +1,167 @@
 ---
 type: security operations guide
-title: Security Boundaries and Operational Safety
-description: Operational trust boundaries for privileged PR labeling and Deep Agents delegation, including untrusted repository input, remote child authority, approvals, credentials, and safe failure behavior.
-tags: [security, operations, ci, delegation, approvals, credentials, sandboxing]
+title: Security and Trust Boundaries
+description: Operational guidance for host-shell authority and cleanup, filesystem policy, dcode trust, MCP/OAuth safety, and Talon hooks, subagents, channel admission, and unattended work.
+tags: [security, operations, trust-boundaries, sandboxing, approvals, credentials, mcp]
+sources:
+  - id: openwiki-source-8896ee5af2462c92e51bfb6e
+    resource: repo://libs/code/deepagents_code/local_context.py
+  - id: openwiki-source-cd45145a8c3a51b52eab3c2b
+    resource: repo://libs/talon/deepagents_talon/background.py
+  - id: openwiki-source-6801a88de6305bc8cbdd259f
+    resource: repo://libs/talon/deepagents_talon/host.py
+  - id: openwiki-source-31e40ff79779f51cafd03f01
+    resource: repo://libs/talon/deepagents_talon/mcp_auth.py
+  - id: openwiki-source-665a21e2fbd09a89d3f13ac0
+    resource: repo://libs/talon/deepagents_talon/runtime.py
+  - id: openwiki-source-2d1f686d24d8182f60108ae7
+    resource: repo://libs/talon/deepagents_talon/subagents.py
+  - id: openwiki-source-df8e616d4a20b5878bc1a05e
+    resource: repo://libs/talon/tests/test_mcp_auth.py
+  - id: openwiki-source-82dab853903c3a574614fd1e
+    resource: repo://libs/talon/tests/unit_tests/test_background.py
+  - id: openwiki-source-a4cc4beb110c42a169caf195
+    resource: repo://libs/talon/tests/unit_tests/test_research_subagents.py
+  - id: openwiki-source-8de0ff38635f214c7268d8e7
+    resource: repo://libs/talon/tests/unit_tests/test_tool_approval_authorization.py
+  - id: openwiki-source-242a21b2da46507f58415265
+    resource: repo://libs/talon/tests/unit_tests/test_tool_approval_runtime.py
+generated: { by: "openwiki/0.4.2", at: "2026-11-24T08:04:12.461Z" }
 verified:
   - by: openwiki/0.4.2
-    at: 2026-10-22T08:05:54.651Z
-sources:
-  - id: openwiki-source-f8781d847f6481a966a44a68
-    resource: repo://.github/workflows/pr_labeler.yml
-  - id: openwiki-source-e51c4102234507d1529a2440
-    resource: repo://libs/deepagents/deepagents/middleware/async_subagents.py
-  - id: openwiki-source-6ce85b02eabe462f99e0c912
-    resource: repo://libs/deepagents/tests/unit_tests/test_async_subagents.py
-generated: { by: "openwiki/0.4.2", at: "2026-10-22T08:05:54.651Z" }
+    at: 2026-11-24T08:04:12.461Z
 ---
 
-# Security Boundaries and Operational Safety
+# Security and Trust Boundaries
 
-Security controls in this repository are boundaries around authority, not instructions to a model. Deep Agents follows a trust-the-LLM model: an agent can use every capability its configured tools and backend make available. Treat prompts, repository text, tool results, MCP results, and child results as untrusted input; enforce confidentiality, integrity, execution, and egress limits with the tool policy, backend or sandbox, network policy, operating-system identity, and narrowly scoped credentials.
+Deep Agents uses a **trust-the-LLM** model: an agent can exercise the authority that its configured tools and backend expose. Treat prompts, repository content, tool output, MCP responses, and channel messages as untrusted inputs, not as an authorization boundary. Put limits at the tool, backend or sandbox, OS identity, network, and credential layers.
 
-## Privileged PR labeling: data may be untrusted, code may not
+## Execution and filesystem authority
 
-`PR Labeler` handles `opened`, `synchronize`, `reopened`, and `edited` through `pull_request_target`. That event has base-repository authority for fork pull requests, so the non-negotiable rule is: **checkout only the trusted base branch and execute only the base branch's labeling code**. The workflow then loads `.github/scripts/labeling/pr-labeler.js` and its configuration from that checkout. It must never checkout, require, run, or interpolate shell from a PR head in this job.
-
-PR titles, bodies, branch names, changed paths, patches, event fields, and authors remain input data for that trusted code. The job runs in the `labeling` environment with deployment disabled and needs `contents: read`, `pull-requests: write`, and `issues: write`; workflow-level permissions are only `contents: read`. Keep action pins immutable full SHAs, minimize secrets, and treat any change to the workflow or loaded labeling helper as a privileged-code change.
-
-```mermaid
-sequenceDiagram
-    participant Event as Pull request target event
-    participant Flow as PR Labeler workflow
-    participant Base as Trusted base checkout
-    participant API as GitHub API
-    participant App as GitHub App token
-    Event->>Flow: PR payload is untrusted data
-    Flow->>Base: checkout base branch only
-    Flow->>Base: load trusted helper and configuration
-    Flow->>API: read PR data and mutate labels
-    alt opened
-        Flow->>App: create and verify token
-        Flow->>API: check membership with App token
-        Flow->>API: apply external and tier labels
-    end
-```
-
-*`pull_request_target` authority is confined to code from the trusted base checkout; PR-controlled content is data passed to that code.*
-
-### Tokens, provenance, and failure behavior
-
-For an opened PR, the job generates and verifies a GitHub App token before using it to look up private organization membership. The helper classifies bots and active members as internal, a 404 as external, and rethrows other membership errors rather than silently guessing. External opened PRs receive contributor-tier and `org:external` labels through the App token; the workflow comments that this token is needed because events created by the default `GITHUB_TOKEN` do not trigger downstream workflows. That event-propagation behavior is **notification linkage**, not cross-deployment authorization: it does not grant a downstream workflow permission to trust PR code, remote agent input, or a child deployment.
-
-The labeler also chooses safe degradation for uncertain classification. Title-renaming API failure warns and continues with the original title. A failed topic comparison or classifier preserves a human-removed topic label rather than reapplying it. Membership failures other than 404 stop the classification step; they must not become an internal classification. Configuration loading fails if required groups are absent or malformed. These choices avoid converting an unavailable dependency into an assertion of trust.
-
-Concurrency separates non-cancelled `opened` work from cancellable update work for the same PR. This preserves opening-time provenance work while allowing a newer synchronization, reopen, or edit run to replace an obsolete update run. Keep label mutations in the unified workflow rather than adding another concurrent writer.
-
-## Delegation creates a new authority domain
-
-An async subagent is a remote Agent Protocol run, not a continuation of the parent process. `start_async_task` creates a remote thread and run, returns its thread ID immediately as `task_id`, and records that identity, current run, status, and timestamps in the parent `async_tasks` state. The parent owns this observation record; the remote graph owns its own tools, backend, credentials, network access, prompt, approval workflow, checkpointer, and policy. A child configured with a remote `url` may receive caller-provided headers, while managed deployments can obtain SDK authentication from environment variables. Treat both as credentials for the child deployment, not as implicit parent permissions.
+`LocalShellBackend` executes commands on the host without sandboxing or isolation. `virtual_mode` restricts filesystem-tool path handling, not shell commands, and inherited environment is opt-in. Use a genuinely isolated backend for untrusted input, shared hosts, or production: approval can authorize a call, but cannot confine a host shell.
 
 ```mermaid
 flowchart TD
-    Parent["Parent agent state"] --> Start["start_async_task"]
-    Start --> Remote["Remote thread and run"]
-    Remote --> Child["Child tools credentials and approvals"]
-    Start --> Record["Parent async_tasks record"]
-    Child --> Outcome["Success error timeout or waiting"]
-    Outcome --> Observe["Check list poll or notification"]
-    Observe --> Record
-    Record --> Parent
+    Input["Untrusted input"] --> Agent["Agent and tool call"]
+    Agent --> Policy["Tool policy and HITL"]
+    Policy --> Local["LocalShellBackend"]
+    Policy --> Sandbox["Isolated sandbox backend"]
+    Local --> Host["Host user authority"]
+    Timeout["Timeout or cancellation"] --> Cleanup["Best effort process cleanup"]
+    Local --> Cleanup
+    Cleanup --> Host
+    Sandbox --> Limits["Sandbox identity mounts and egress"]
 ```
 
-*The parent tracks lifecycle state, while the child deployment remains responsible for execution authority and approval decisions.*
+*Tool approval decides whether a mediated action proceeds; the selected backend defines its execution boundary, while timeout and cancellation trigger cleanup rather than containment.*
 
-The default async launch is isolated and sends only the delegated description. Experimental `mode="fork"` sends a snapshot of reconstructed conversation history, but it does not copy the parent's system prompt, tools, filesystem permissions, credentials, or HITL configuration. Forked text and media are therefore information flow, not authorization flow. Before forwarding, the middleware removes local artifacts and local eviction metadata, restores blob-backed tool content for the snapshot, and serializes portable messages. Design remote child prompts and retention policies on the assumption that forked content can contain untrusted user, repository, tool, or model text.
+### Local-shell lifecycle and cleanup
 
-The middleware exposes `start_async_task`, `check_async_task`, `update_async_task`, `cancel_async_task`, and `list_async_tasks`. It validates configured agent names and duplicate names; a bad task ID or unknown type is an error without changing tracked state. Client instances are cached by URL and resolved headers. URL-less local ASGI transport requires an async parent entrypoint such as `ainvoke`; synchronous invocation requires a reachable URL.
+A command is launched through `subprocess.Popen(..., shell=True)` with stdin disconnected, the backend working directory, its constructed environment, and captured stdout/stderr. The default timeout is 120 seconds; output is bounded after collection. These operational limits make a failed command observable, but do not restrict what a running host command can access or do.
 
-### Lifecycle is not approval delegation
+On POSIX, each command starts in a new session, so timeout, interruption, and default `aexecute()` cancellation try to send `SIGKILL` to that command's process group, drain and close captured pipes, and briefly reap the shell. A child that creates its own session or process group—for example via `setsid`—is outside that group; `nohup` alone is not. On Windows there is no new group: cleanup kills only the direct shell, and descendants may survive or keep inherited output pipes open. In either case a cleanup failure is reported as a timeout that warns the command may still be running; do not blindly retry an operation with external effects.
 
-A successful child run whose thread is interrupted is represented as `waiting`, not `success`: the child is paused for its own human's input or approval. The parent can inspect the pending interrupt and continue other work, but cannot answer or approve it. A remote child's filesystem rules and `interrupt_on` configuration must be installed in that child graph. Sharing a parent conversation, trace relationship, or task ID does not share approval authority.
+Async cancellation signals a worker thread and waits only a short cleanup grace period. If cleanup outlives it, the future is retained and its eventual failure is logged without command arguments; cancellation still returns to the caller. Overriding `execute()` takes the legacy thread-delegation path and does not receive this built-in cancellation cleanup. Treat cancellation, process killing, output limits, and timeout responses as availability and hygiene mechanisms—not as a security boundary or proof that a command, descendant, or side effect stopped.
 
-`update_async_task` starts a new run on the same child thread. The default `interrupt` strategy replaces active work; if the child is waiting, it drops the human request rather than resolving it. The `enqueue` strategy queues behind current work and can report `pending`; it retains earlier run IDs so an earlier completion cannot be mistaken for the latest request. Only one queued update per task is accepted per model turn, preventing parallel calls from losing tracking. If earlier work pauses for a human, a queued follow-up still starts and the pause is dropped. Cancellation marks a waiting task cancelled without cancelling a completed paused run; otherwise it cancels the latest run and attempts earlier pending or running queued runs newest-first.
+### Filesystem middleware
+
+Filesystem rules classify the built-in `ls`, `read_file`, `glob`, and `grep` tools as reads and `write_file`, `edit_file`, and `delete` as writes. Rules are evaluated in order with **first-match** semantics and an allow default. Patterns must be absolute and cannot contain `..` or `~`; rule effects are allow, deny, or approval interrupt.
+
+For a local `FilesystemBackend`, including one selected by a `CompositeBackend`, the middleware evaluates both the requested path and its resolved target. A deny on either blocks the tool call; with a nonempty policy, a resolution failure is denied. Recursive deletion additionally checks whether the target overlaps a denied pattern. This applies to mediated filesystem tools, not arbitrary shell commands or direct backend use.
+
+`RepositoryBounds` is a distinct read-only inspection boundary for coding subagents. It fails closed to `ls`, `read_file`, `glob`, and `grep`; applies lexical and canonical containment checks against traversal and symlink escape where possible; bounds result volume; and turns backend failures into bounded unavailable errors. It is not a general shell authorization mechanism.
+
+## dcode server and workspace trust
+
+### Sanitize the child server environment
+
+The dcode launcher creates the `langgraph dev` child environment from the current process, removes project-dotenv-loaded values, then strips dynamic-loader, interpreter/path, shell-startup, askpass, and Node startup variables. It also removes LangGraph cloud/auth and LangSmith tenant/control-plane credentials, sets `LANGGRAPH_AUTH_TYPE=noop`, and disables the control-plane key. The default bind is loopback and the internal server uses an ephemeral port.
+
+`PYTHONPATH` deserves separate treatment: the launcher removes it before the server interpreter starts so an inherited untrusted-project path cannot shadow imports. It carries the launch value in a private bootstrap variable that the approval-gated agent shell can later restore; pre-existing carrier variables are discarded. The launcher similarly replaces its LangSmith carrier from captured bootstrap state. Persistent or scoped restart overrides cannot alter the selected profile, profile marker, Python-path carrier, or LangSmith carrier.
+
+Treat a production deployment's network and route authentication as deployment responsibilities. The generated built-in dcode configuration opts custom HTTP routes into LangGraph's route-auth layer when an auth backend is configured, but its ordinary production launcher uses noop auth and relies on its loopback bind.
+
+### A checkout is not permission to execute its configuration
+
+Project MCP configuration, sandbox setup, extension paths, and project extensions are directory-scoped execution grants which the server—not a client—must resolve. A bound workspace policy is re-resolved per request; if a recorded extension-trust grant disappears, including because the trust store cannot be read, dcode refuses the thread. Switching outside the launch project drops launch-project MCP configuration, sandbox setup, explicit extension paths, and project MCP trust, then reads extension trust for the target project.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> running: launch
-    running --> success: completed
-    running --> error: failed
-    running --> timeout: timed out
-    running --> waiting: child needs its human
-    running --> pending: queued update
-    pending --> running: queued run starts
-    waiting --> running: child human resumes
-    running --> cancelled: cancel
-    pending --> cancelled: cancel
-    waiting --> cancelled: record cancellation
+sequenceDiagram
+    participant Client as dcode client
+    participant Server as dcode server
+    participant Workspace as Canonical workspace
+    Client->>Server: request with workspace context
+    Server->>Workspace: resolve identity and project policy
+    Server->>Server: bind or validate policy
+    alt policy changed or trust revoked
+        Server-->>Client: reject request
+    else policy remains valid
+        Server->>Server: use graph
+    end
 ```
 
-*`waiting` belongs to the child thread's human workflow; an update or cancellation is lifecycle management, not a parent approval.*
+*Project-scoped authority is resolved by the server for the canonical workspace, rather than inherited from a client path or previous checkout.*
 
-On asynchronous execution, status pulls occur at agent start, before model calls, and after a final answer. Checks are time-bounded; failed observation is logged and skipped until later, rather than inventing a terminal outcome. `list_async_tasks` filters cached state before refreshing selected nonterminal work and retains cached status on refresh failure. Completion notifications mark child text as a system notification, escape text that could close its framing tags, clip long results, and keep only text and supported media blocks; reasoning and tool-call blocks are excluded. A notification from a superseded run is rewritten so it cannot be treated as the latest result.
+Project dotenv files are untrusted. dcode denies values that can relocate the trust root or cause code execution through loaders, interpreter/path settings, shell startup, askpass, or Git configuration; `startup.read_project_dotenv` cannot itself be set by dotenv. Keep secrets in operator-controlled configuration.
 
-Same-deployment children may wake an idle or errored parent only when their launch reference contains both parent thread and assistant identity; a reject-on-conflict strategy avoids replacing a newly busy parent run. A parent waiting for a human is not awakened because that could cancel its approval. A remote child, or one with `notify_parent=False`, keeps at most parent-thread provenance and cannot wake the parent. A `webhook` is an Agent Server callback to the configured application endpoint, not an authorization channel and not a replacement for durable parent-side checking. Set `notify_parent=False` when the application owns delivery, and authenticate, authorize, and replay-protect that webhook endpoint independently.
+Hooks use canonical workspace-root trust, atomically and restrictively persisted under locks; their session grants are tied to the current hook-file fingerprint. Resolution or fingerprint failures fail closed. Python extensions require experimental extensions, extension loading, and applicable project trust before trusted project sources can execute factories and register capabilities. Installed plugin Python declarations must remain existing `.py` files under the plugin root and have a nonempty version, but installation is still an operator trust decision because manifests can supply MCP and hooks.
 
-## Filesystem permissions and HITL are mediated controls
+## MCP and OAuth boundaries
 
-`FilesystemPermission` applies ordered `allow`, `deny`, and `interrupt` rules to built-in filesystem tools. Absolute non-traversing patterns are required; the first matching leaf rule wins and no matching rule allows the call. Direct backend access is outside this policy. Denied paths are removed from bulk read results, and recursive or potentially recursive deletion uses conservative all-or-nothing overlap checks so an allowed parent cannot delete a denied descendant. On `FilesystemBackend` and routed filesystem paths, both the requested path and a symlink-resolved target are checked; resolution failures deny or produce errors, and listings filter aliases into denied trees.
+An MCP server is an authority boundary: stdio starts a local command, while remote MCP can receive sensitive data and return hostile tool descriptions or content. Review command, arguments, URL, headers, OAuth configuration, scopes, allowed tools, and expected egress before enabling one.
 
-Interrupt rules become HITL predicates, with separate exact and bulk scopes. Missing or current-directory bulk paths are treated conservatively, symlink targets are checked where a backend is available, and `glob` patterns cannot redirect a reviewed path outside its scope without review. Approval controls that particular mediated graph call; it is neither a sandbox nor a credential grant.
+Talon loads only well-formed named server entries; it expands `${VAR}` references from runtime or process environment and validates string fields. It supports `stdio`, `sse`, and streamable HTTP transports. Stdio environment values cannot set startup-hijacking variables such as `LD_PRELOAD`, `PYTHONPATH`, or shell initialization variables. Remote OAuth cannot be combined with an explicit `Authorization` header. Tool loading is bounded to 30 seconds, failed servers are reported as unavailable rather than contributing tools, and an optional allowlist or denylist filters a server's exposed tools.
 
-A nonempty filesystem permission policy is rejected for an execution-capable backend because `execute` has no equivalent permission enforcement, except when every rule is scoped to a `CompositeBackend` route prefix. `LocalShellBackend` executes with `shell=True` under the launching user's host authority; virtual filesystem mode changes filesystem methods but does not restrict command execution. Use an isolated execution backend, least-privileged identity, restricted mounts and egress, and credentials unavailable to the shell whenever untrusted input can influence commands.
+OAuth login is intentionally interactive. Without a terminal or current Talon conversation authorization handler, an OAuth-required scheduled job or background subagent fails with instructions to authorize from chat or run `deepagents-talon mcp login <server>`; it does not create a prompt with no accountable recipient. Channel device-code authorization binds the server name, tool invocation, and expiry to its flow.
 
-## Repository configuration, extensions, and sandbox setup
+Talon's OAuth transport validates public HTTPS endpoints with SSRF protection, ignores proxy environment settings, does not follow redirects, bounds DNS resolution, requests, discovery, and response size, and revalidates metadata endpoints before using them. Device-flow endpoints must match the authorization-server origin; normal OAuth metadata is checked for an issuer match and each endpoint is independently revalidated. These controls prevent a discovered endpoint from becoming an arbitrary internal-network request; they do not establish trust in a public remote service.
 
-A checkout is input, not a trust source. Deep Agents Code blocks high-risk process-execution variables from project dotenv files and prevents them from injecting MCP trust, auto-review, subagent, or recursion controls. If trusted global dotenv configuration cannot be read, project dotenv loading is skipped rather than assumed enabled.
+MCP status and configuration errors are also untrusted prompt inputs. dcode omits `untrusted` project servers from the model-facing inventory, and sanitizes, single-lines, and bounds displayed server errors and tracing-project names before placing them in the system prompt. This result framing limits prompt-injection and formatting exposure in that particular prompt path; it neither authenticates an MCP server nor contains one that has already been enabled.
 
-Project MCP server trust is resolved from managed or user configuration and selected process environment, not repository files. Approvals bind a definition fingerprint to a repository or worktree as appropriate; denies accumulate, and malformed trust configuration is surfaced for fail-closed handling. MCP interpolation accepts only supported braced environment references in command, URL, arguments, environment, headers, and OAuth fields, rejecting malformed references and missing required values. Syntax validation does not reduce the authority of an approved command or remote service.
+dcode token storage derives safe paths from server identity and warns that token representations must not be logged. Talon token storage uses owner-only directories/files, locking, and atomic replacement, preserves an existing refresh token when a refresh response omits one, and warns that filesystem hardening is not confidentiality isolation from its default shell backend. Store tokens outside agent workspaces and run Talon under an account appropriate to the authority those tokens convey.
 
-Project Python extensions execute only when experimental extensions are enabled and trust comes from an explicit run grant, always-trust policy, or stored trust. Switching projects deliberately drops launch-project MCP, sandbox-setup, and explicit extension-path policy instead of carrying it forward. A configured sandbox setup script is trusted deployment input: the sandbox factory validates provider snapshot capability and executes the configured script after expansion in the workspace environment. It cleans up sandboxes it created, not attached sandboxes.
+## Talon runtime, hooks, subagents, admission, and unattended work
 
-## Credentials, persistence, and secondary processing
+### Assistant-owned command hooks
 
-MCP OAuth state is secret-bearing JSON. Deep Agents Code uses safe server-derived paths, in-process mutation locks, atomic replacement, and owner-only permission hardening where supported, but operators must still protect the profile/state location. Talon uses analogous derived credential storage and preserves a refresh token omitted in a refresh response, but warns that workspace placement and file permissions do not provide confidentiality against its default shell backend. Talon OAuth metadata fetching accepts safe public HTTPS endpoints through an HTTPS-only, proxy-ignoring, redirect-disabled SSRF-safe transport with bounded DNS/HTTP work and a 64 KiB JSON limit; it rejects mixed public/private DNS resolution.
+Talon loads `hooks.json` from the resolved assistant home once at the start of each turn, not from the workspace. It opens that exact file with `O_NOFOLLOW`, requires a regular file, and builds a snapshot with `workspace_trusted=False` and no project hooks. A missing file simply disables hooks; unreadable or invalid content produces diagnostics and an empty effective configuration rather than treating workspace configuration as trusted. Configuration changes therefore apply on a later turn, not midway through an existing turn.
 
-In server mode, dcode binds each thread to a canonical server-resolved workspace and policy in SQLite. Later runs reject unbound, substituted, fingerprint-mismatched, unsupported-schema, or identity-changed context; persisted workspace policy intentionally excludes secret model credentials and prompts. Thread-title generation similarly treats conversation content as untrusted: it uses bounded visible human/AI content, excludes system/internal/control and user-shell messages, makes a tool-free, callback-free secondary call with a timeout, and normalizes output.
+The shared hook runtime supports Talon's `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, and `Stop` server events. It validates that each hook interrupt belongs to the active snapshot, thread, and prompt and caches each invocation response. A `PreToolUse` denial prevents that call and suppresses an unnecessary approval interrupt, but a hook `allow` does **not** bypass Talon's operator-controlled tool approval. Hook commands are executable authority from the assistant home: protect that directory and review `hooks.json` as carefully as any other local command configuration. Hook denial and tool approval remain mediation decisions, not host containment.
 
-## Operational checklist and focused tests
+### Fresh subagents and inherited control plane
 
-1. **Protect CI privilege.** Preserve the base-only checkout invariant in every `pull_request_target` job. Pass PR-controlled values only as data to trusted code; do not execute PR paths, actions, or shell fragments alongside secrets or write tokens.
-2. **Install controls where execution occurs.** Configure each remote child graph's tools, filesystem policy, sandbox, network, credentials, and HITL independently. Do not infer authorization from a parent link, notification, webhook, or forked context.
-3. **Fail safe under uncertainty.** Stop privileged membership classification on unexpected API failure; retain human removals; report unavailable child status as cached/unknown rather than completed; make application callbacks independently authenticated.
-4. **Use durable task observation.** Test launch, check, waiting, resume, interrupt and enqueue updates, cancellation of latest and superseded work, polling timeout/failure, notification escaping, and webhook ownership separately.
-5. **Treat local execution and configuration as code.** Keep project dotenv, MCP definitions, extensions, and sandbox setup from self-authorizing. Keep secrets out of repository and shell-visible environments.
-6. **Run focused regression tests.** `python .github/scripts/tests/labeling/test_pr_labeler.py` exercises labeler contracts. `libs/deepagents/tests/unit_tests/test_async_subagents.py` covers task validation, isolated/fork payloads, status lifecycle, waiting, updates, cancellation, and notification behavior.
+Talon compiles local subagents with a fresh context: no parent history or skills are inherited, and `fork` mode is unsupported. A fresh graph receives only its configured tools plus an explicit per-task addition selected from the parent catalog; duplicate or unknown requested tool names are rejected. It gets Talon's MCP middleware, cooperative subagent-control middleware, and only the enabled approval entries for tools actually attached. Talon refuses to run a precompiled local subagent whenever an approval policy exists because it cannot enforce that policy inside the opaque graph; use a fresh agent with explicit tools instead.
 
-See [CI labeling](/openwiki/operations/ci-labeling.md), [permissions and HITL](/openwiki/concepts/permissions-hitl.md), [subagents and skills](/openwiki/concepts/subagents-skills.md), and [runtime behavior](/openwiki/architecture/runtime-behavior.md).
+When parent hooks are active, each fresh child gets a child hook adapter that retains the turn's snapshot but creates independent thread and prompt identities, agent identity, invocation responses, and transcript scope. Its graph handles hook interrupts with a bounded resume loop, emits no child `Stop` event, and returns unresolved approval interrupts to the caller. Subagent findings and embedded instructions are untrusted evidence; they cannot prove approval or expand the main agent's authority.
+
+Talon's default backend is still `LocalShellBackend`, but its child environment is deliberately reconstructed rather than inherited. It admits only a small runtime-oriented allowlist plus `LC_` keys, forces a fixed safe `PATH`, and removes loader/shell/Python hijack variables, LangSmith/LangChain settings, and keys whose names indicate credentials or tokens. This reduces incidental secret and startup-state exposure; it does not sandbox the host filesystem, process, or network.
+
+Unknown direct-message senders require a time-limited pairing code bound to provider, sender, and conversation. Only operator surfaces can approve it. A paired sender receives the operator's configured credentials and host access but cannot administer pairing or tool-approval policy; verify identity out of band and revoke promptly.
+
+Talon tool approval policy is an exact-name, revisioned immutable invocation snapshot. Enabled entries create approval interrupts; updates require operator context and a compare-and-swap revision, and take effect only for the next invocation. An absent or `false` entry does not create an approval gate, so policy edits can reduce oversight and need the same operational review as any authorization change.
+
+### Unattended delegation and result exposure
+
+A cron fire and a background-result delivery turn are **unattended**. For delivery, `TalonHost` supplies no tool-approval or authorization handler and disables the question handler; the runtime independently treats `trigger: "cron"` and `background_delivery` as non-operator contexts. It auto-rejects a cron approval interrupt and auto-rejects a background-delivery interrupt when a caller injects an approval handler. Thus metadata or a handler passed through a lower-level invocation cannot turn an unattended turn into an operator-authorized one.
+
+A detached attended-chat worker is different from a delivery turn, but has the same no-prompt rule. It runs in a copied context so it can retain required history and cron-origin scope, then explicitly clears the authorization handler and `APPROVAL_OPERATOR`, uses a new task thread ID, and forbids nested delegation. An approval interrupt is converted to `Subagent needs tool approval; the protected action has not run.` rather than being retained for a conversation that may have ended. Workers are in-memory and conversation-owned: their completed text is later injected as data only into the owning main conversation, where the host may start the unattended delivery turn.
+
+Cron delegation does **not** create such a worker. While `_SCHEDULED_TURN` is set, `task` and `start_async_task` run inline, return their result to the same graph turn, and leave no job to inspect, cancel, or deliver later. Talon hides those meaningless worker-management tools and changes the delegation guidance accordingly. Inline calls use a separate four-slot semaphore, queue rather than consume the attended-worker capacity, and default to a ten-minute per-delegation limit; an outer scheduled run is bounded to 30 minutes. Nested delegation remains refused. These are scheduling and availability controls, not a containment boundary for a capability already granted to the subagent backend or tools.
+
+Both paths turn timeout and ordinary failures into bounded safe result text instead of allowing an exception to escape and retry the graph. The generic failure result does not expose tool arguments or provider exception payloads; recognized HTTP failures provide only a status-class hint. Detached and inline results expose answer text only—excluding non-text reasoning blocks—and cap it at 64,000 characters. Preserve this failure conversion: an escaping inline deadline could cause graph retry to relaunch sibling delegation calls. Operators should pre-authorize only the exact unattended capabilities required, design effects to be safe under cancellation and retry, and never regard prompt suppression, approval denial, result filtering, or interpreter isolation as a substitute for backend, tool, OS, network, or credential authority boundaries.
+
+Scheduled work is repaired after its outer timeout; revoking the paired sender that created a job stops that sender's scheduled run. Time bounds and denial prevent an unattended call from proceeding, but do not contain an action that has already been granted authority.
+
+## ACP and operating checklist
+
+ACP persistent execution approval is scoped to canonical full tool-argument JSON and the current session context. Changed commands, arguments, contexts, or sessions require review; invalid requests cannot receive reusable permission. This narrow reuse rule applies to `execute`; verify the graph's `interrupt_on` configuration for every other sensitive tool.
+
+1. **Choose the backend first.** Do not expose untrusted repository or channel input to a host shell, privileged OS account, inherited secrets, or unrestricted egress.
+2. **Operate host-shell cleanup as best effort.** On POSIX avoid programs that detach into their own session; on Windows assume descendants can survive. Treat a timeout warning as an incident signal and make effects idempotent before retrying.
+3. **Use path policy as tool mediation, not confinement.** Test requested paths, symlink targets, and recursive deletion; keep shell authority separately constrained.
+4. **Grant execution configuration explicitly.** Review dcode checkout hooks, extensions, sandbox setup, and MCP per canonical workspace. Separately protect Talon's assistant-home `hooks.json`; Talon intentionally does not load workspace hooks.
+5. **Treat MCP configuration and OAuth as deployment authority.** Restrict stdio commands and remote scopes, protect token state, and never log token objects.
+6. **Require a human for human decisions.** Pair senders out of band, keep approval policy operator-owned, use fresh subagents with explicit tools where policy must apply, and ensure cron/background tasks auto-deny gated actions rather than prompting an unrelated channel.
+7. **Exercise focused tests after boundary changes.** Relevant coverage includes `libs/deepagents/tests/unit_tests/backends/test_local_shell_backend.py`, `libs/talon/tests/unit_tests/test_hooks.py`, `libs/code/tests/unit_tests/test_server_helpers.py`, `libs/acp/tests/unit_tests/test_execute_permissions.py`, Talon's `test_tool_approval_batch.py` and `test_questions.py`, plus `libs/talon/tests/test_mcp_auth.py`, `libs/talon/tests/unit_tests/test_background.py`, and `libs/talon/tests/unit_tests/test_research_subagents.py`. The latter two cover cleared worker authorization, approval-to-non-execution conversion, result text handling, and fresh subagent attachment boundaries.
+
+See [Code agent architecture](/openwiki/architecture/code-agent.md), [permissions and HITL](/openwiki/concepts/permissions-hitl.md), [Talon channel admission](/openwiki/concepts/talon-channel-admission.md), and [MCP integration](/openwiki/integrations/mcp.md).

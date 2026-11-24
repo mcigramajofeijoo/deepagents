@@ -23,7 +23,8 @@ from starlette.routing import Route
 
 from deepagents_code._async import _join_task_deferring_cancellation
 from deepagents_code._cli_context import CLIContextSchema
-from deepagents_code.btw_api import btw, btw_cost
+from deepagents_code._run_queue_wakeup import install_run_queue_wakeup
+from deepagents_code.btw_api import btw, btw_cost, thread_usage
 from deepagents_code.cost_tracking import prepare_operation_cost
 from deepagents_code.hooks.interrupt import build_hook_interrupt_payload
 from deepagents_code.hooks.server_middleware import (
@@ -170,9 +171,49 @@ async def _flush_traces() -> None:
         )
 
 
+def _log_prebuild_failure(task: asyncio.Task[object]) -> None:
+    """Retrieve a failed runtime prebuild so asyncio does not report it.
+
+    The first request retries the build, so it surfaces the error to the
+    client. `SystemExit` is not handled here: asyncio re-raises it out of the
+    event loop, and `get_server_runtime` has already emitted the startup-error
+    marker by then.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if isinstance(exc, Exception):
+        logger.warning(
+            "Server runtime prebuild failed; the first request retries it",
+            exc_info=exc,
+        )
+
+
+def _start_runtime_prebuild() -> asyncio.Task[object]:
+    """Start building the default runtime while the client polls for health.
+
+    The client asks for the graph only after `/ok` answers. Building here
+    overlaps the build with that poll interval. `get_server_runtime` caches the
+    result under a lock, so the first request joins this build.
+
+    Returns:
+        The background build task.
+    """
+    from deepagents_code.server_graph import get_server_runtime
+
+    task: asyncio.Task[object] = asyncio.create_task(
+        get_server_runtime(), name="dcode-runtime-prebuild"
+    )
+    task.add_done_callback(_log_prebuild_failure)
+    return task
+
+
 @asynccontextmanager
 async def _lifespan(_app: Starlette) -> AsyncIterator[None]:
-    """Flush buffered traces once the server stops serving.
+    """Prepare the server, then flush buffered traces once serving stops.
+
+    Startup patches the run queue to start new runs without the poll delay
+    (see `_run_queue_wakeup`) and prebuilds the runtime.
 
     `Client` registers an `atexit` handler that only closes its session, never
     flushes, so without this hook anything still queued when dcode signals the
@@ -185,10 +226,16 @@ async def _lifespan(_app: Starlette) -> AsyncIterator[None]:
     Yields:
         Control for the lifetime of the application.
     """
+    install_run_queue_wakeup()
+    prebuild = _start_runtime_prebuild()
     try:
         yield
     finally:
         try:
+            # Join the cancelled build so its own cleanup finishes before
+            # extensions shut down.
+            prebuild.cancel()
+            await asyncio.wait((prebuild,))
             from deepagents_code.extensions.runtime import shutdown_server_extensions
 
             await shutdown_server_extensions()
@@ -637,6 +684,34 @@ def _validate_context(context: dict[str, Any]) -> None:
     ):
         msg = "context.hooks_server_events must be a list of strings or null."
         raise TypeError(msg)
+
+
+_OFFLOAD_TRIGGERS = frozenset({"manual", "idle"})
+"""Values a client may send as `context.offload_trigger`."""
+
+
+def _offload_trigger(context: Mapping[str, object], *, handoff: bool) -> str:
+    """Label why this offload ran, for the summarizer's trace metadata.
+
+    Lets traces separate idle compaction from a user's `/offload` so the
+    feature's cost effect can be measured. Telemetry only: an absent or
+    unrecognized value is recorded as `manual` rather than rejected.
+
+    Args:
+        context: The request's runtime context.
+        handoff: Whether this is a handoff summary for a new thread.
+
+    Returns:
+        `handoff`, `idle`, or `manual`.
+    """
+    if handoff:
+        return "handoff"
+    trigger = context.get("offload_trigger")
+    return (
+        trigger
+        if isinstance(trigger, str) and trigger in _OFFLOAD_TRIGGERS
+        else "manual"
+    )
 
 
 def _checkpoint_id(state: Mapping[str, object]) -> str:
@@ -1139,7 +1214,10 @@ async def _execute_offload(
                     "checkpoint_id": checkpoint_id,
                     "checkpoint_ns": namespace,
                     "run_id": operation_id,
-                }
+                },
+                "metadata": {
+                    "dcode_offload_trigger": _offload_trigger(context, handoff=handoff)
+                },
             },
         )
         token = var_child_runnable_config.set(config)
@@ -1379,42 +1457,73 @@ async def cancel_offload(request: Request) -> JSONResponse:
     return JSONResponse({"status": _operation_outcomes.get(key, "finished")})
 
 
+# `include_in_schema=False` keeps these private dcode routes out of the server's
+# OpenAPI spec. Starlette parses each handler docstring as YAML for that spec;
+# Google-style docstrings fail to parse and log one traceback per route at
+# every server start.
 app = Starlette(
     lifespan=_lifespan,
     routes=[
-        Route("/dcode/model", startup_model_metadata, methods=["GET"]),
+        Route(
+            "/dcode/model",
+            startup_model_metadata,
+            methods=["GET"],
+            include_in_schema=False,
+        ),
         Route(
             "/dcode/threads/{thread_id:str}/models",
             model_catalog,
             methods=["POST"],
+            include_in_schema=False,
         ),
         Route(
             "/dcode/threads/{thread_id:str}/model",
             model_metadata,
             methods=["POST"],
+            include_in_schema=False,
         ),
-        Route("/dcode/threads/{thread_id:str}/btw", btw, methods=["POST"]),
-        Route("/dcode/threads/{thread_id:str}/cost", btw_cost, methods=["GET"]),
+        Route(
+            "/dcode/threads/{thread_id:str}/btw",
+            btw,
+            methods=["POST"],
+            include_in_schema=False,
+        ),
+        Route(
+            "/dcode/threads/{thread_id:str}/cost",
+            btw_cost,
+            methods=["GET"],
+            include_in_schema=False,
+        ),
+        Route(
+            "/dcode/threads/{thread_id:str}/usage",
+            thread_usage,
+            methods=["GET"],
+            include_in_schema=False,
+        ),
         Route(
             "/dcode/threads/{thread_id:str}/workspace",
             workspace,
             methods=["POST"],
+            include_in_schema=False,
         ),
         Route(
             "/dcode/threads/{thread_id:str}/offload",
             offload,
             methods=["POST"],
+            include_in_schema=False,
         ),
         Route(
             "/dcode/threads/{thread_id:str}/handoff",
             _handoff,
             methods=["POST"],
+            include_in_schema=False,
         ),
         Route(
             "/dcode/threads/{thread_id:str}/offload/{operation_id:str}/cancel",
             cancel_offload,
             methods=["POST"],
+            include_in_schema=False,
         ),
-        Route("/extensions", _extensions, methods=["GET"]),
+        Route("/extensions", _extensions, methods=["GET"], include_in_schema=False),
     ],
 )

@@ -5,10 +5,21 @@ concrete lower bound (`>=` or `~=`) in `[project.dependencies]`,
 `[project.optional-dependencies]`, or `[dependency-groups]`, this rewrites that
 lower bound in place to the newest stable PyPI release that still has at least
 one non-yanked file *and* remains within the requirement's existing range.
+With `--check-resolution`, uv checks the combined bumps and affected reverse
+dependents before writing. If they conflict, dependency-wide bumps are tried in
+name order against the accepted set; incompatible bumps retain their old floors
+and appear in the summary. Tool errors and an unresolvable baseline fail closed.
+
 Upper bounds, extras, and environment markers are preserved. Exact pins (`==`)
 are left alone — raising a floor only applies to range floors. A bound already
 ahead of the latest stable release (intentional prerelease coordination) is
 respected and never lowered.
+
+A dependency that `[tool.uv.sources]` maps to a local path (a sibling package in
+this repository) is still raised: the path only applies to local development,
+while the published floor is what PyPI users install against. The new floor is
+capped at the version the local checkout declares so `uv lock` keeps resolving
+the path source. A local source whose version cannot be read is skipped.
 
 A dependency whose PyPI metadata could not be fetched, or a manifest that could
 not be rewritten, is reported as a failure rather than silently omitted: an
@@ -28,17 +39,18 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import Specifier, SpecifierSet
 from packaging.utils import canonicalize_name
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -77,7 +89,8 @@ RAISEABLE_OPERATORS = frozenset({">=", "~="})
 # integrations (langchain-*, the base langchain/langgraph/langsmith packages,
 # and langgraph-* companion packages) plus the deepagents-* workspace packages
 # that one package pulls from PyPI (e.g. deepagents-code -> deepagents-acp).
-# Workspace-local sources and a package's own name are excluded per manifest.
+# A package's own name, URL requirements, and local sources without a readable
+# version are excluded per manifest.
 # Matching is a bare name prefix with no hyphen boundary, so an unrelated
 # third-party distribution such as `langchainhub` is also in scope.
 IN_SCOPE_PREFIXES = ("langchain", "langgraph", "langsmith", "deepagents")
@@ -128,9 +141,13 @@ class ManifestScope:
         requirements: `(raw_string, parsed_requirement)` pairs for every
             in-scope dependency, in manifest declaration order.
         workspace_names: Canonical names declared here but resolved from the
-            workspace rather than PyPI (a URL, a `[tool.uv.sources]` path, or
-            the package itself). They have no PyPI floor to raise, which a
-            narrowed run must report differently from a name that is absent.
+            workspace rather than PyPI (a URL, a local `[tool.uv.sources]` entry
+            with no readable version, or the package itself). They have no PyPI
+            floor to raise, which a narrowed run must report differently from a
+            name that is absent.
+        local_versions: Versions declared by the local checkouts that
+            `[tool.uv.sources]` paths point at. A raised floor must not pass
+            these, or `uv lock` could no longer resolve the path source.
 
     """
 
@@ -138,6 +155,7 @@ class ManifestScope:
     text: str
     requirements: tuple[tuple[str, Requirement], ...]
     workspace_names: frozenset[str] = frozenset()
+    local_versions: Mapping[str, Version] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -300,16 +318,53 @@ def _self_name(project: Mapping[str, object]) -> str | None:
     return canonicalize_name(name) if isinstance(name, str) else None
 
 
+def _path_source_version(directory: Path, source: object) -> Version | None:
+    """Return the static version of the package a `[tool.uv.sources]` path names.
+
+    Returns `None` for non-path sources and for checkouts whose version is
+    missing, dynamic, or unreadable.
+    """
+    if not isinstance(source, Mapping) or not isinstance(source.get("path"), str):
+        return None
+    pyproject = directory / source["path"] / "pyproject.toml"
+    try:
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
+        return Version(project["version"])
+    except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, InvalidVersion):
+        return None
+
+
+def _local_versions(
+    manifest_path: str, manifest: Mapping[str, object], local_names: frozenset[str]
+) -> dict[str, Version]:
+    """Map each local-path dependency to the version its checkout declares."""
+    tool = manifest.get("tool")
+    uv = tool.get("uv") if isinstance(tool, Mapping) else None
+    sources = uv.get("sources") if isinstance(uv, Mapping) else None
+    if not isinstance(sources, Mapping):
+        return {}
+    directory = (REPO_ROOT / manifest_path).parent
+    versions: dict[str, Version] = {}
+    for name, source in sources.items():
+        canonical_name = canonicalize_name(str(name))
+        if canonical_name not in local_names:
+            continue
+        version = _path_source_version(directory, source)
+        if version is not None:
+            versions[canonical_name] = version
+    return versions
+
+
 def _resolved_from_pypi(
     requirement: Requirement,
     canonical_name: str,
     local_names: frozenset[str],
     self_name: str | None,
 ) -> bool:
-    """Return whether a requirement resolves from PyPI rather than the workspace.
+    """Return whether a requirement has a published PyPI floor to raise.
 
-    A URL requirement, a `[tool.uv.sources]` path dependency, and the package's
-    own name all have no PyPI floor to raise. Kept separate from `_in_scope` so
+    A URL requirement, the package's own name, and each name in `local_names`
+    (local sources with no readable version) have no PyPI floor to raise. Kept separate from `_in_scope` so
     a caller can tell *why* a name was excluded, which is what lets a narrowed
     run say "resolved locally" instead of "not declared".
     """
@@ -357,6 +412,10 @@ def _load_scope(
         raise TypeError(msg)
 
     local_names = local_dependency_names(manifest)
+    local_versions = _local_versions(manifest_path, manifest, local_names)
+    # A versioned local source is a published sibling package, so its floor is
+    # raised like any other; only unversioned local sources stay excluded.
+    local_names -= local_versions.keys()
     self_name = _self_name(project)
     requirements: list[tuple[str, Requirement]] = []
     workspace_names: set[str] = set()
@@ -388,6 +447,7 @@ def _load_scope(
         text=text,
         requirements=tuple(requirements),
         workspace_names=frozenset(workspace_names),
+        local_versions=local_versions,
     )
 
 
@@ -504,7 +564,13 @@ def _plan_manifest(
         versions = available.get(canonical_name)
         if not versions:
             continue
-        new_minimum = _latest_compatible_version(requirement, versions)
+        local_version = scope.local_versions.get(canonical_name)
+        candidates = (
+            versions
+            if local_version is None
+            else [version for version in versions if version <= local_version]
+        )
+        new_minimum = _latest_compatible_version(requirement, candidates)
         if new_minimum is None or new_minimum <= minimum:
             continue
 
@@ -552,6 +618,110 @@ def lock_dirs_for(
             {PurePosixPath(path).parent.as_posix() for path in changed_manifests}
         )
     return stale_lock_dirs(changed_manifests)
+
+
+def _resolves(manifests: Collection[str], *, skip_dependents: bool) -> bool:
+    """Check universal resolution without changing lockfiles; fail on tool errors."""
+    for directory in lock_dirs_for(manifests, skip_dependents=skip_dependents):
+        result = subprocess.run(
+            [
+                "uv",
+                "lock",
+                "--dry-run",
+                "--directory",
+                str(REPO_ROOT / directory),
+                "--python",
+                python_version(REPO_ROOT / directory),
+                "--color",
+                "never",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        if result.returncode:
+            if "No solution found when resolving dependencies" in result.stderr:
+                _notice(result.stderr)
+                return False
+            msg = f"Could not check resolution for {directory}: {result.stderr}"
+            raise RuntimeError(msg)
+    return True
+
+
+def _compatible_plans(
+    plans: Sequence[ManifestPlan], *, skip_dependents: bool
+) -> tuple[list[ManifestPlan], list[RequirementEdit]]:
+    """Keep jointly resolvable bumps, restoring original manifests on every exit."""
+    originals = {
+        plan.manifest_path: (REPO_ROOT / plan.manifest_path).read_text(encoding="utf-8")
+        for plan in plans
+    }
+    try:
+        for plan in plans:
+            (REPO_ROOT / plan.manifest_path).write_text(plan.new_text, encoding="utf-8")
+        if _resolves(originals, skip_dependents=skip_dependents):
+            return list(plans), []
+        for path, text in originals.items():
+            (REPO_ROOT / path).write_text(text, encoding="utf-8")
+        if not _resolves(originals, skip_dependents=skip_dependents):
+            msg = (
+                "Existing requirements do not resolve; "
+                "cannot safely select minimum bumps."
+            )
+            raise RuntimeError(msg)
+        return _select_resolvable_bumps(
+            plans, originals, skip_dependents=skip_dependents
+        )
+    finally:
+        for path, text in originals.items():
+            (REPO_ROOT / path).write_text(text, encoding="utf-8")
+
+
+def _select_resolvable_bumps(
+    plans: Sequence[ManifestPlan],
+    originals: Mapping[str, str],
+    *,
+    skip_dependents: bool,
+) -> tuple[list[ManifestPlan], list[RequirementEdit]]:
+    """Try each dependency across manifests against all previously accepted bumps."""
+    accepted: list[RequirementEdit] = []
+    skipped: list[RequirementEdit] = []
+    grouped: dict[str, list[RequirementEdit]] = {}
+    for plan in plans:
+        for edit in plan.edits:
+            grouped.setdefault(edit.dependency_name, []).append(edit)
+    for name, edits in sorted(grouped.items()):
+        before = {
+            path: (REPO_ROOT / path).read_text(encoding="utf-8") for path in originals
+        }
+        for path, text in before.items():
+            replacements = {
+                edit.old_requirement: edit.new_requirement
+                for edit in edits
+                if edit.manifest_path == path
+            }
+            (REPO_ROOT / path).write_text(
+                _apply_replacements(text, replacements, path), encoding="utf-8"
+            )
+        if _resolves(originals, skip_dependents=skip_dependents):
+            accepted.extend(edits)
+        else:
+            _notice(
+                f"Skipping {name}: raised minimums conflict with the dependency graph."
+            )
+            skipped.extend(edits)
+            for path, text in before.items():
+                (REPO_ROOT / path).write_text(text, encoding="utf-8")
+    return [
+        ManifestPlan(
+            path,
+            (REPO_ROOT / path).read_text(encoding="utf-8"),
+            tuple(edit for edit in accepted if edit.manifest_path == path),
+        )
+        for path in originals
+        if any(edit.manifest_path == path for edit in accepted)
+    ], skipped
 
 
 def _edit_markdown(edit: RequirementEdit) -> str:
@@ -630,6 +800,7 @@ def _run(
     narrow_to: frozenset[str] | None = None,
     *,
     skip_dependent_locks: bool = False,
+    check_resolution: bool = False,
 ) -> int:
     """Raise in-scope lower bounds for `package`, writing manifests and outputs.
 
@@ -668,8 +839,9 @@ def _run(
                 )
             if workspace:
                 reasons.append(
-                    "declared but resolved from the workspace (a URL or a "
-                    "[tool.uv.sources] path), so there is no PyPI floor to "
+                    "declared but resolved from the workspace (a URL, the "
+                    "package itself, or a [tool.uv.sources] entry without a "
+                    "readable local version), so there is no PyPI floor to "
                     f"raise: {', '.join(sorted(workspace))}"
                 )
             _error(
@@ -707,8 +879,21 @@ def _run(
         if plan.edits:
             plans.append(plan)
 
+    skipped: list[RequirementEdit] = []
+    if check_resolution and plans:
+        plans, skipped = _compatible_plans(plans, skip_dependents=skip_dependent_locks)
+    skipped_summary = (
+        edits_markdown(skipped, heading="### Skipped incompatible minimum bumps")
+        if skipped
+        else ""
+    )
     all_edits = [edit for plan in plans for edit in plan.edits]
     if not all_edits:
+        if skipped:
+            print(skipped_summary)
+            _write_output("changed", "false")
+            _write_output("summary", skipped_summary)
+            return 1 if fetch_failures or plan_failures else 0
         if fetch_failures or plan_failures:
             _error(
                 f"No minimums could be raised for {package} and some inputs "
@@ -758,6 +943,8 @@ def _run(
     summary = edits_markdown(
         all_edits, heading=f"Raised {len(all_edits)} dependency {noun}:"
     )
+    if skipped_summary:
+        summary += "\n\n" + skipped_summary
     if fetch_failures or plan_failures:
         summary += "\n\n" + failures_markdown(fetch_failures, plan_failures)
     print(summary)
@@ -824,6 +1011,11 @@ def main() -> int:
         ),
     )
     parser.add_argument("--skip-dependent-locks", action="store_true")
+    parser.add_argument(
+        "--check-resolution",
+        action="store_true",
+        help="Skip minimum bumps that uv cannot resolve, including reverse dependents.",
+    )
     args = parser.parse_args()
     try:
         dependencies = _parse_dependency_csv(args.dependencies)
@@ -832,6 +1024,7 @@ def main() -> int:
             args.package,
             dependencies,
             skip_dependent_locks=args.skip_dependent_locks,
+            check_resolution=args.check_resolution,
         )
     except Exception as err:  # noqa: BLE001  # fail closed on script defects
         _error(f"Raising dependency minimums failed unexpectedly: {err}")

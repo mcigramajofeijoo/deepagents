@@ -45,6 +45,7 @@ if TYPE_CHECKING:
         Mapping,
         Sequence,
     )
+    from ssl import SSLContext
     from typing import TextIO
 
     import httpx2
@@ -93,6 +94,7 @@ MCPServerStatus = Literal[
     "awaiting_reconnect",
     "error",
     "disabled",
+    "untrusted",
 ]
 """Load states a configured MCP server can end up in.
 
@@ -106,6 +108,12 @@ failure.
 `disabled` is set when the user has turned the server off via the TUI
 (`/mcp` -> F2). No connection is attempted and no tools are loaded, but
 the entry is still surfaced in the viewer so the user can re-enable it.
+
+`untrusted` is set for a project-scoped server skipped because the user has
+not approved it for this project (or its definition changed since approval).
+Approval happens only in the startup prompt, so a server added or edited
+mid-session cannot load until the next launch; the entry exists so `/reload`
+and `/mcp` can say so instead of dropping the server silently.
 
 `awaiting_reconnect` is a transient UI-only state used after OAuth login
 has succeeded but before the LangGraph server has restarted and loaded
@@ -132,8 +140,8 @@ class MCPServerInfo:
     status: MCPServerStatus = "ok"
     """Load status.
 
-    One of `ok`, `unauthenticated`, `awaiting_reconnect`, `error`, or
-    `disabled`.
+    One of `ok`, `unauthenticated`, `awaiting_reconnect`, `error`,
+    `disabled`, or `untrusted`.
     """
 
     error: str | None = None
@@ -436,6 +444,12 @@ def _validate_server_config(server_name: str, server_config: dict[str, Any]) -> 
 
     if not isinstance(server_config, dict):
         error_msg = f"Server '{server_name}' config must be a dictionary"
+        raise TypeError(error_msg)
+
+    if "skillOnly" in server_config and not isinstance(
+        server_config["skillOnly"], bool
+    ):
+        error_msg = f"Server '{server_name}' 'skillOnly' must be a boolean"
         raise TypeError(error_msg)
 
     server_type = _resolve_server_type(server_config)
@@ -1267,6 +1281,47 @@ def _merge_mcp_configs_with_sources(
     return {"mcpServers": servers}, sources
 
 
+def resolve_mcp_server_sources(config_paths: Collection[Path]) -> dict[str, Path]:
+    """Map each server name to the config file whose definition wins.
+
+    Display-only provenance for the trust prompt, so a user can see which file
+    a server came from. Unreadable files are skipped; this never decides trust.
+
+    Args:
+        config_paths: Config paths in ascending precedence order.
+
+    Returns:
+        Server name to the path that supplied its highest-precedence definition.
+    """
+    loaded: list[tuple[Path, dict[str, Any]]] = []
+    for path in config_paths:
+        config, _ = _load_mcp_config_top_level_with_error(path)
+        if config is not None:
+            loaded.append((path, config))
+    _, sources = _merge_mcp_configs_with_sources(loaded)
+    return sources
+
+
+def is_user_mcp_config_path(path: Path) -> bool:
+    """Return whether `path` is the user-level MCP config file.
+
+    Outside a git repository the project root falls back to the working
+    directory. Started from home, the project candidate
+    `<home>/.deepagents/.mcp.json` is the user config itself, and discovery
+    deliberately keeps it at project scope.
+
+    Args:
+        path: A discovered config path.
+
+    Returns:
+        `True` only when the paths are known to be the same file.
+    """
+    return (
+        _same_config_location(path, PATHS.profile.mcp_config_file)
+        is MCPConfigIdentity.SAME
+    )
+
+
 def load_mcp_config_lenient(
     config_path: Path, *, disabled_servers: Collection[str] = ()
 ) -> dict[str, Any] | None:
@@ -1420,44 +1475,6 @@ def _check_stdio_server(server_name: str, server_config: dict[str, Any]) -> None
         msg = (
             f"MCP server '{server_name}': configured command not found on PATH. "
             "Install it or check your MCP config."
-        )
-        raise RuntimeError(msg)
-
-
-async def _check_remote_server(server_name: str, server_config: dict[str, Any]) -> None:
-    """Check network connectivity to a remote MCP server URL.
-
-    Args:
-        server_name: Server name for error messages.
-        server_config: Validated remote server config.
-
-    Raises:
-        RuntimeError: If the URL is missing, unreachable, or returns 5xx.
-    """
-    import httpx
-
-    url = server_config.get("url")
-    if url is None:
-        msg = f"MCP server '{server_name}': missing 'url' in config."
-        raise RuntimeError(msg)
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            response = await client.head(url)
-    except (httpx.HTTPError, httpx.InvalidURL, OSError) as exc:
-        # Name the failure *class* (e.g. `ConnectTimeout`, `InvalidURL`) so the
-        # failure mode stays diagnosable, but keep the URL redacted: `str(exc)`
-        # echoes the URL (which may carry `${VAR}`-injected credentials), while
-        # the class name never does.
-        msg = (
-            f"MCP server '{server_name}': configured URL is unreachable "
-            f"({type(exc).__name__}). "
-            "Check that the URL is correct and the server is running."
-        )
-        raise RuntimeError(msg) from exc
-    if response.status_code >= 500:  # noqa: PLR2004  # HTTP server-error band
-        msg = (
-            f"MCP server '{server_name}': configured URL returned HTTP "
-            f"{response.status_code}. Server may be down; retry later."
         )
         raise RuntimeError(msg)
 
@@ -1696,14 +1713,11 @@ def _apply_tool_filter(
     ]
 
 
-_MCP_LOAD_CONCURRENCY = 8
-"""Upper bound on MCP servers preflighted/discovered concurrently.
+_MCP_REMOTE_CONNECT_TIMEOUT = 2.0
+"""Maximum seconds to establish a remote HTTP connection."""
 
-Independent servers are probed in parallel so graph load no longer scales
-linearly with server count, but the fan-out is capped so a large config cannot
-spawn an unbounded number of simultaneous socket/subprocess handshakes (or
-`asyncio.to_thread` `shutil.which` workers).
-"""
+_MCP_LOAD_CONCURRENCY = 8
+"""Upper bound on simultaneous MCP setup and discovery pipelines."""
 
 
 def _warm_mcp_adapter_imports() -> None:
@@ -1800,6 +1814,28 @@ async def _gather_bounded[T](
         raise
 
 
+def _remote_http_client(
+    headers: dict[str, str] | None = None,
+    timeout: httpx2.Timeout | None = None,
+    auth: httpx2.Auth | None = None,
+    *,
+    follow_redirects: bool = True,
+    verify: SSLContext | bool | str = True,
+) -> httpx2.AsyncClient:
+    """Return an HTTP client with a short connect timeout and unchanged reads."""
+    import httpx2
+
+    timeout = httpx2.Timeout(timeout or httpx2.Timeout(30.0, read=300.0))
+    timeout.connect = _MCP_REMOTE_CONNECT_TIMEOUT
+    return httpx2.AsyncClient(
+        headers=headers,
+        timeout=timeout,
+        auth=auth,
+        follow_redirects=follow_redirects,
+        verify=verify,
+    )
+
+
 def _build_transport(
     server_name: str,  # noqa: ARG001 - retained for transport factory callers
     server_type: str,
@@ -1831,6 +1867,7 @@ def _build_transport(
     Returns:
         A transport ready to mount on the router.
     """
+    from fastmcp.client.transports import SSETransport, StreamableHttpTransport
     from fastmcp.mcp_config import RemoteMCPServer, StdioMCPServer
 
     if server_type in _SUPPORTED_REMOTE_TYPES:
@@ -1846,7 +1883,13 @@ def _build_transport(
         # The config's `auth` is a mode name (`"oauth"`), not a credential; the
         # resolved provider replaces it.
         remote.auth = auth
-        return remote.to_transport()
+        transport = remote.to_transport()
+        if isinstance(transport, (SSETransport, StreamableHttpTransport)):
+            transport.httpx_client_factory = functools.partial(
+                _remote_http_client,
+                verify=True if transport.verify is None else transport.verify,
+            )
+        return transport
 
     stdio = StdioMCPServer.model_validate(dict(server_config))
     stdio.keep_alive = keep_alive
@@ -1856,7 +1899,10 @@ def _build_transport(
 
 
 async def _mount_backends(
-    backends: Mapping[str, ClientTransport],
+    backends: Mapping[
+        str,
+        Callable[[], Awaitable[ClientTransport | tuple[MCPServerStatus, str]]],
+    ],
     *,
     redact: Mapping[str, bool],
 ) -> tuple[
@@ -1872,7 +1918,8 @@ async def _mount_backends(
     and filters cannot be bypassed by ambiguous mounted names.
 
     Args:
-        backends: Ready transports keyed by server name.
+        backends: Transport factories keyed by server name, run immediately
+            before that server's discovery under the same concurrency bound.
         redact: Per-server flag for whether error detail may quote a config
             that interpolates `${VAR}` references.
 
@@ -1891,14 +1938,22 @@ async def _mount_backends(
     discovered: dict[str, list[Any]] = {}
     failures: dict[str, tuple[MCPServerStatus, str]] = {}
 
-    from fastmcp.client.transports import StdioTransport
+    from fastmcp.client.transports import ClientTransport, StdioTransport
 
     stack = AsyncExitStack()
     connected: dict[str, StatefulProxyClient[Any]] = {}
 
-    async def connect(server_name: str, transport: ClientTransport) -> None:
+    async def connect(
+        server_name: str,
+        prepare: Callable[[], Awaitable[ClientTransport | tuple[MCPServerStatus, str]]],
+    ) -> None:
         owned = AsyncExitStack()
         try:
+            transport = await prepare()
+            if not isinstance(transport, ClientTransport):
+                failures[server_name] = transport
+                return
+            owned.push_async_callback(_close_mcp_resource, "transport", transport.close)
             if isinstance(transport, StdioTransport):
                 # Register ownership in the worker too: cancellation must not lose
                 # a handle opened after the awaiting task has been cancelled.
@@ -1910,7 +1965,6 @@ async def _mount_backends(
                 await _finish_cleanup(
                     asyncio.create_task(asyncio.to_thread(prepare_stderr))
                 )
-            owned.push_async_callback(_close_mcp_resource, "transport", transport.close)
             backend = StatefulProxyClient(
                 transport=transport, log_handler=_server_log_handler(server_name)
             )
@@ -2079,27 +2133,18 @@ async def _load_tools_from_config(
     # ever reaching this function — never pays the adapter-import cost.
     await asyncio.to_thread(_warm_mcp_adapter_imports)
 
-    # Imported here, not at module scope: pulling FastMCP in eagerly would put
-    # it on the `dcode mcp --help` startup path.
-    from fastmcp.client.transports import ClientTransport as _ClientTransport
-
     server_items: list[tuple[str, dict[str, Any]]] = list(config["mcpServers"].items())
     # Resolve each server's transport once, up front. `_resolve_server_type` is
     # pure, so this is a readability/DRY win over recomputing it in preflight,
     # discovery, and the final fold-in loop below.
     transports = {name: _resolve_server_type(cfg) for name, cfg in server_items}
-    # Names whose connection got an OAuth provider, recorded during preflight
-    # and folded into `MCPServerInfo.uses_oauth` at discovery. Preflight fully
-    # completes before discovery starts, so this is populated by then. Computed
-    # here rather than in `_discover_server` because the decision needs the
-    # *resolved* config — the token file stem is derived from the expanded URL.
     oauth_servers: set[str] = set()
     # Whether each server's config interpolates `${VAR}`. Captured from the
     # *raw* config: once refs are expanded, an error message could echo a
     # resolved secret, so those servers' failures are reported without detail.
     redacts = {name: _config_uses_env_interpolation(cfg) for name, cfg in server_items}
 
-    async def _preflight_and_connect(
+    async def _prepare_transport(
         server_name: str,
         server_config: dict[str, Any],
     ) -> tuple[MCPServerStatus, str] | ClientTransport:
@@ -2135,9 +2180,7 @@ async def _load_tools_from_config(
             )
             return ("error", str(exc))
         try:
-            if server_type in _SUPPORTED_REMOTE_TYPES:
-                await _check_remote_server(server_name, server_config)
-            elif server_type == "stdio":
+            if server_type == "stdio":
                 # `shutil.which` makes blocking `os.access` calls; run it
                 # off the event loop so blockbuster doesn't reject it.
                 await asyncio.to_thread(_check_stdio_server, server_name, server_config)
@@ -2233,34 +2276,15 @@ async def _load_tools_from_config(
                 )
             return ("error", error)
 
-    # Preflight + connection build runs concurrently across servers (bounded).
-    # Results come back in submission order, so `skipped`/`connections` are
-    # assembled in config order and stay deterministic regardless of which
-    # server's probe finished first.
-    preflight_results = await _gather_bounded(
-        [
-            functools.partial(_preflight_and_connect, name, cfg)
-            for name, cfg in server_items
-        ],
-        limit=_MCP_LOAD_CONCURRENCY,
-    )
-
-    skipped: dict[str, tuple[MCPServerStatus, str]] = {}
-    backends: dict[str, ClientTransport] = {}
-    for (server_name, _server_config), result in zip(
-        server_items, preflight_results, strict=True
-    ):
-        if isinstance(result, _ClientTransport):
-            backends[server_name] = result
-        else:
-            skipped[server_name] = result
-
     runtime_manager = MCPSessionManager()
-    client, stack, by_server, mount_failures = await _mount_backends(
-        backends, redact=redacts
+    client, stack, by_server, skipped = await _mount_backends(
+        {
+            name: functools.partial(_prepare_transport, name, cfg)
+            for name, cfg in server_items
+        },
+        redact=redacts,
     )
     runtime_manager.adopt(client, stack)
-    skipped.update(mount_failures)
     tool_names = _unique_mcp_tool_names(
         [(server, tool.name) for server, tools in by_server.items() for tool in tools]
     )
@@ -2295,6 +2319,11 @@ async def _load_tools_from_config(
             for tool in server_tools:
                 original_name = (tool.metadata or {})[_MCP_ORIGINAL_TOOL_NAME_KEY]
                 tool.name = tool_names[server_name, original_name]
+                if server_config.get("skillOnly"):
+                    tool.metadata = {
+                        **(tool.metadata or {}),
+                        "_deepagents_code_skill_only": True,
+                    }
             server_tools = _apply_tool_filter(server_tools, server_name, server_config)
 
             # Pair each schema by the server-side name retained in the adapted
@@ -2448,6 +2477,17 @@ async def get_mcp_tools(
     """  # noqa: DOC502 - surfaced via `load_mcp_config`
     config = load_mcp_config(config_path)
     return await _load_tools_from_config(config)
+
+
+_UNTRUSTED_PROJECT_SERVER_ERROR = (
+    "Not approved for this project. Restart to review it in the approval "
+    "prompt, or launch with --trust-project-mcp."
+)
+"""Reason attached to project servers skipped for lacking trust approval.
+
+The approval prompt runs only at startup, so the guidance points there rather
+than at an in-session action that does not exist.
+"""
 
 
 def _log_skipped_project_servers(
@@ -2668,7 +2708,10 @@ async def resolve_and_load_mcp_tools(
     if additional_configs or project_configs:
         from deepagents_code.model_config import load_mcp_server_trust_lists
 
-        trust_lists = load_mcp_server_trust_lists()
+        # Normalizing saved approval roots calls `Path.resolve()`, which calls
+        # `os.readlink` when a root sits under a symlink. That blocks the
+        # server event loop, so read the trust lists in a worker thread.
+        trust_lists = await asyncio.to_thread(load_mcp_server_trust_lists)
         config_load_errors.extend(_mcp_trust_list_notices(trust_lists))
 
     # Installing a plugin is the user's trust decision for every bundled
@@ -2722,6 +2765,7 @@ async def resolve_and_load_mcp_tools(
                 configs.append({**plugin_config, "mcpServers": plugin_kept})
 
     loaded_project_configs: list[tuple[Path, dict[str, Any]]] = []
+    untrusted: list[ProjectServerSummary] = []
 
     for path in project_configs:
         config, error = _load_mcp_config_top_level_with_error(path)
@@ -2805,6 +2849,16 @@ async def resolve_and_load_mcp_tools(
                 trust_project_mcp=trust_project_mcp,
                 config_trusted=config_trusted,
             )
+        # Rejections are settled decisions, so only servers still awaiting
+        # approval are surfaced (see `_untrusted_infos`). That covers saved
+        # rejections and a "deny for this session" answer to the startup
+        # prompt (`trust_project_mcp is False`); re-reporting either would just
+        # send the user back to a prompt they already answered.
+        untrusted = (
+            []
+            if trust_project_mcp is False
+            else [s for s in dropped if s.name not in trust_lists.disabled]
+        )
 
     if explicit_config_path:
         config_path = (
@@ -2815,6 +2869,49 @@ async def resolve_and_load_mcp_tools(
         explicit_config = load_mcp_config(config_path)
         configs.append(explicit_config)
         session_cwd_servers.update(explicit_config["mcpServers"])
+
+    from deepagents_code.configuration.service import ManagedConfigError
+    from deepagents_code.mcp_disabled import get_disabled_servers
+
+    # Read the F2/managed deny list once, up front: unapproved project servers
+    # need it too, so a server the user switched off reads as disabled (and
+    # stays re-enableable) rather than as awaiting approval.
+    disabled_names: set[str] = set()
+    disabled_policy_unreadable = False
+    if configs or untrusted:
+        try:
+            disabled_names = get_disabled_servers()
+        except ManagedConfigError:
+            disabled_policy_unreadable = True
+
+    def _untrusted_infos() -> list[MCPServerInfo]:
+        # Name servers awaiting approval so `/reload` and `/mcp` can show them;
+        # a log line alone reads as the server vanishing. A name another config
+        # still supplies (e.g. the user-level file) is reported by that entry,
+        # so skip it rather than list the same name twice.
+        supplied = {
+            name
+            for config in configs
+            if isinstance(config.get("mcpServers"), dict)
+            for name in config["mcpServers"]
+        }
+        return [
+            MCPServerInfo(
+                name=summary.name,
+                transport=summary.kind,
+                status="disabled",
+                error="Disabled by user (F2 to re-enable).",
+            )
+            if summary.name in disabled_names
+            else MCPServerInfo(
+                name=summary.name,
+                transport=summary.kind,
+                status="untrusted",
+                error=_UNTRUSTED_PROJECT_SERVER_ERROR,
+            )
+            for summary in untrusted
+            if summary.name not in supplied
+        ]
 
     def _bad_config_infos() -> list[MCPServerInfo]:
         return [
@@ -2828,24 +2925,17 @@ async def resolve_and_load_mcp_tools(
         ]
 
     if not configs:
-        return [], None, _bad_config_infos()
+        return [], None, _untrusted_infos() + _bad_config_infos()
 
     merged = merge_mcp_configs(configs)
     if not merged.get("mcpServers"):
-        return [], None, _bad_config_infos()
+        return [], None, _untrusted_infos() + _bad_config_infos()
 
-    from deepagents_code.configuration.service import ManagedConfigError
-    from deepagents_code.mcp_disabled import get_disabled_servers
-
-    try:
-        disabled_names = get_disabled_servers()
-    except ManagedConfigError:
+    if disabled_policy_unreadable:
         # The managed deny list is unreadable, so no server can be shown to be
         # permitted. Deny every one rather than start the servers an
         # administrator may have blocked.
-        logger.error(  # noqa: TRY400
-            "Managed MCP policy is unreadable; disabling all MCP servers."
-        )
+        logger.error("Managed MCP policy is unreadable; disabling all MCP servers.")
         disabled_names = set(merged["mcpServers"])
     disabled_infos: list[MCPServerInfo] = []
     if disabled_names:
@@ -2867,7 +2957,7 @@ async def resolve_and_load_mcp_tools(
         merged = {"mcpServers": active}
 
     if not merged.get("mcpServers"):
-        return [], None, disabled_infos + _bad_config_infos()
+        return [], None, disabled_infos + _untrusted_infos() + _bad_config_infos()
 
     try:
         for server_name, server_config in merged["mcpServers"].items():
@@ -2887,5 +2977,6 @@ async def resolve_and_load_mcp_tools(
         session_manager=session_manager,
     )
     server_infos.extend(disabled_infos)
+    server_infos.extend(_untrusted_infos())
     server_infos.extend(_bad_config_infos())
     return tools, manager, server_infos

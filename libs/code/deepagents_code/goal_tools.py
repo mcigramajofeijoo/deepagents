@@ -36,9 +36,11 @@ from deepagents_code.goal_state_limits import (
     validate_goal_status_note,
 )
 from deepagents_code.goal_state_notice import (
+    anchor_summarization_event,
     build_goal_state_notice,
     goal_notice_size_error,
     goal_state_fingerprint,
+    goal_state_notice_info,
     has_goal_or_rubric_state,
     is_oversized_goal_state_message,
     latest_goal_state_message_index,
@@ -73,6 +75,7 @@ def _goal_state_notice_for(
     state: dict[str, Any],
     messages: Sequence[object],
     *,
+    candidate: int | None,
     cutoff: int,
 ) -> HumanMessage | None:
     """Build a notice when effective history lacks current goal/rubric state.
@@ -80,6 +83,10 @@ def _goal_state_notice_for(
     Args:
         state: Authoritative middleware state.
         messages: Messages visible at the next model boundary.
+        candidate: Index of the newest goal-state message in `messages`, from
+            `latest_goal_state_message_index`. Callers compute it once and
+            share it, because the scan walks the full history when no notice
+            exists.
         cutoff: Summarization cutoff index that `messages` is measured against.
             Required rather than defaulted: both callers pass the full persisted
             list, where a notice below the cutoff is present but invisible to the
@@ -92,17 +99,18 @@ def _goal_state_notice_for(
     """
     if latest_human_is_unsaved_goal_continuation(messages):
         return None
-    latest = latest_goal_state_notice(messages)
-    latest_candidate = latest_goal_state_message_index(messages)
-    fingerprint = goal_state_fingerprint(state)
+    if candidate is None:
+        return (
+            build_goal_state_notice(state) if has_goal_or_rubric_state(state) else None
+        )
+    # The newest valid notice counts only when it is also the newest goal-state
+    # message, so validating that one message is enough.
+    info = goal_state_notice_info(messages[candidate])
     if (
-        latest is not None
-        and latest[0] == latest_candidate
-        and latest[1]["state_fingerprint"] == fingerprint
-        and latest[0] >= cutoff
+        info is not None
+        and info["state_fingerprint"] == goal_state_fingerprint(state)
+        and candidate >= cutoff
     ):
-        return None
-    if latest_candidate is None and not has_goal_or_rubric_state(state):
         return None
     return build_goal_state_notice(state)
 
@@ -374,7 +382,7 @@ class GoalToolsMiddleware(AgentMiddleware[GoalToolState, ContextT]):
         # predicate in `app.py`. A malformed event diverges deliberately: `app.py`
         # collapses it to `0`, while here it forces a fresh notice and clears the
         # event.
-        event = values.get("_summarization_event")
+        event = anchor_summarization_event(values.get("_summarization_event"), messages)
         cutoff = validated_summarization_cutoff(
             event,
             message_count=len(messages),
@@ -383,6 +391,7 @@ class GoalToolsMiddleware(AgentMiddleware[GoalToolState, ContextT]):
         notice = _goal_state_notice_for(
             values,
             messages,
+            candidate=latest_goal_state_message_index(messages),
             # Force a fresh notice when discarding an event so a summarization
             # regenerated on this boundary retains the canonical goal state.
             cutoff=len(messages) if malformed_event else (cutoff or 0),
@@ -481,7 +490,13 @@ class GoalToolsMiddleware(AgentMiddleware[GoalToolState, ContextT]):
             `_summarization_event` — a state override nulling that event.
         """
         values = cast("dict[str, Any]", request.state)
-        event = values.get("_summarization_event")
+        raw_event = values.get("_summarization_event")
+        event = anchor_summarization_event(raw_event, request.messages)
+        if event is not raw_event:
+            # Inner SDK releases without `cutoff_message_id` slice by the
+            # stored index, so hand them the anchored event.
+            values = {**values, "_summarization_event": event}
+            request = request.override(state=cast("AgentState[Any]", values))
         cutoff = validated_summarization_cutoff(
             event,
             message_count=len(request.messages),
@@ -494,14 +509,22 @@ class GoalToolsMiddleware(AgentMiddleware[GoalToolState, ContextT]):
             log_malformed_summarization_event(event, len(request.messages))
             values = {**values, "_summarization_event": None}
             request = request.override(state=cast("AgentState[Any]", values))
+        candidate = latest_goal_state_message_index(request.messages)
         notice = _goal_state_notice_for(
             notice_values if notice_values is not None else values,
             request.messages,
+            candidate=candidate,
             # Force a fresh notice when discarding an event, matching
             # `_notice_update`, so a summarization regenerated on this boundary
             # retains the canonical goal state.
             cutoff=len(request.messages) if malformed_event else (cutoff or 0),
         )
+        if candidate is None:
+            # No goal-state message exists, so none can be oversized and the
+            # in-place replacement pass below has nothing to do.
+            if notice is None:
+                return request
+            return request.override(messages=[*request.messages, notice])
         latest = latest_goal_state_notice(request.messages)
         preserved_index = latest[0] if notice is None and latest is not None else None
         messages = [

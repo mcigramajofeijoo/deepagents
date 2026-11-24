@@ -1,7 +1,7 @@
 # Files
 
-- [Agent Client Protocol Integration](acp.md) - How deepagents-acp adapts a LangGraph graph to an editor-facing ACP server, including sessions, streaming, interrupts, and optional recovery. It also explains dcode ACP launch and how its in-process ACP graphs differ from remote Agent Protocol delegation.
-- [GitHub Action Integration](github-action.md) - Run one bounded, non-interactive dcode task from a GitHub Actions job. Documents the public action contract, credential and workspace handoff, memory cache lifecycle, and headless tool controls.
-- [MCP Configuration, Tools, and OAuth](mcp.md) - How dcode discovers and trust-gates MCP configuration, connects and exposes MCP tools, and manages OAuth login, credential persistence, reloads, and failures.
-- [Sandbox and Partner Integrations](sandbox-partners.md)
-- [Talon Runtime Integration](talon.md) - Talon is an experimental local host that turns admitted channel input into Deep Agents turns, managing media, approvals, progress, history, schedules, and background-result follow-up. This page explains ownership boundaries, request flow, and operating constraints.
+- [Agent Client Protocol Integration](acp.md) - How deepagents-acp exposes a LangGraph graph through ACP and how dcode builds, owns, and serves durable ACP sessions. Covers graph selection, stream projection, approvals, persistence fencing, and operational compatibility.
+- [GitHub Action Integration](github-action.md) - Run one bounded, non-interactive dcode task from a GitHub Actions job. This guide covers the composite action contract, published CLI boundary, state lifecycle, safeguards, verification, and release safety.
+- [MCP Integration](mcp.md) - Configure, trust, load, authenticate, and operate MCP servers in dcode and Talon. Covers configuration provenance, remote and stdio safety, OAuth credential lifecycle, call deadlines, and reload behavior.
+- [Sandbox and Partner Integrations](sandbox-partners.md) - QuickJS embeds a persistent, in-process JavaScript REPL in Deep Agents, with checkpointed snapshots and explicit host-capability bridges. This page explains lifecycle, authority boundaries, resource limits, subagent and cost transport, and the tests that protect them.
+- [Talon Runtime Integration](talon.md) - Talon composes a channel-owning host with a replaceable Deep Agents runtime. It documents graph assembly, per-invocation authority, process-local delegation, diagnostics, lifecycle, and compatibility with dcode and the SDK.

@@ -48,6 +48,8 @@ from deepagents_code._session_stats import (
     UsageLedgerKey,
     classify_usage_kind,
     finalize_recorded_requests,
+    is_model_usage_event,
+    is_summarization_started_event,
     print_usage_table,
     record_message_usage,
     record_model_usage_event,
@@ -83,6 +85,7 @@ from deepagents_code.hooks import (
     drain_pending_hooks,
 )
 from deepagents_code.hooks.transcript import SUBAGENT_TRANSCRIPT_ID_METADATA_KEY
+from deepagents_code.integrations.sandbox_factory import owned_sandbox
 from deepagents_code.model_retry import (
     INTERRUPTED_TOOL_OUTPUT,
     RETRY_BOUNDARY_LINE,
@@ -196,36 +199,6 @@ def _write_newline() -> None:
     """Write a newline to stdout (and flush)."""
     sys.stdout.write("\n")
     sys.stdout.flush()
-
-
-def _make_stdio_encoding_safe() -> None:
-    """Prevent `UnicodeEncodeError` from killing a non-interactive run.
-
-    Legacy Windows consoles default to a locale code page (e.g. cp1252) that
-    cannot encode decorative Unicode glyphs; the first `console.print()` containing one
-    then crashes the whole run. Reconfiguring the streams with
-    `errors="replace"` degrades unencodable characters to "?" instead. The
-    stream encoding itself is left untouched.
-    """
-    for stream in (sys.stdout, sys.stderr):
-        # Streams replaced by non-reconfigurable objects (e.g. a plain
-        # StringIO or a captured buffer) are left as-is.
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
-            reconfigure(errors="replace")
-        except ValueError, OSError, TypeError:
-            # Closed, detached, or otherwise non-reconfigurable stream (a
-            # duck-typed `reconfigure` with a different signature raises
-            # `TypeError`) — leave it as-is. This is a best-effort hardening
-            # step; it must never itself crash the run.
-            logger.debug(
-                "Could not reconfigure %s error handler",
-                getattr(stream, "name", stream),
-                exc_info=True,
-            )
-            continue
 
 
 class _ConsoleSpinner:
@@ -1668,7 +1641,16 @@ def _process_stream_chunk(
     if stream_mode == "updates" and isinstance(data, dict) and "__interrupt__" in data:
         _process_interrupts(cast("dict[str, list[Interrupt]]", data), state, console)
     elif stream_mode == "custom" and isinstance(data, dict):
-        if data.get("type") == "model_retry":
+        if is_model_usage_event(data):
+            record_model_usage_event(
+                state.stats,
+                data,
+                active_thread_id=state.thread_id,
+                fallback_model=runtime_state.model_name or "",
+                fallback_provider=runtime_state.model_provider or "",
+                recorded_requests=state.recorded_usage_requests,
+            )
+        elif data.get("type") == "model_retry":
             correlation = model_retry_from_event(data)
             if correlation is not None:
                 _process_retry_lifecycle(
@@ -1964,7 +1946,9 @@ async def _stream_agent(
         ):
             summarization = _summarization_stream_status(chunk)
             compaction_id = _compaction_result_id(chunk)
-            if summarization is False and state.summarization_observed:
+            if summarization:
+                state.summarization_observed = True
+            elif summarization is False and state.summarization_observed:
                 if compaction_id is not None:
                     state.completed_compaction_ids.add(compaction_id)
                 await _after_headless_compact(state)
@@ -1995,6 +1979,8 @@ def _summarization_stream_status(chunk: object) -> bool | None:
     namespace, stream_mode, data = chunk
     if namespace:
         return None
+    if stream_mode == "custom":
+        return True if is_summarization_started_event(data) else None
     if (
         stream_mode != "messages"
         or not isinstance(data, tuple)
@@ -2927,8 +2913,6 @@ async def run_non_interactive(
             when the `--max-turns` budget was exceeded (matching GNU `timeout`),
             130 for keyboard interrupt.
     """
-    _make_stdio_encoding_safe()
-
     # stderr=True routes all console.print() to stderr; agent response text
     # uses _write_text() -> sys.stdout directly.
     console = Console(stderr=True) if quiet else Console()
@@ -2943,6 +2927,15 @@ async def run_non_interactive(
     except ResumeError as exc:
         _print_resume_error(console, exc)
         return 1
+    if resume is not None and resume.adopt_model and model_name is None:
+        from deepagents_code.client.headless_resume import resume_launch_model
+        from deepagents_code.model_config import ModelConfigError
+
+        try:
+            model_name = await resume_launch_model(thread_id)
+        except ModelConfigError as exc:
+            _print_resume_error(console, exc)
+            return 1
     if quiet:
         # Printed despite `-q`: scripts parse it to resume the thread later.
         console.print(
@@ -3063,36 +3056,44 @@ async def run_non_interactive(
         if not quiet:
             console.print(Text("Starting LangGraph server...", style="dim"))
 
-        async with server_session(
-            assistant_id=assistant_id,
-            model_name=model_name,
-            model_params=model_params,
-            cli_max_retries=cli_max_retries,
-            profile_overrides=profile_override,
-            auto_approve=use_auto_approve,
-            interrupt_shell_only=use_interrupt_shell_only,
-            shell_allow_list=restrictive_allow_list,
-            sandbox_type=sandbox_type,
-            sandbox_id=sandbox_id,
-            sandbox_snapshot_name=sandbox_snapshot_name,
-            sandbox_setup=sandbox_setup,
-            enable_shell=enable_shell,
-            enable_ask_user=False,
-            enable_interpreter=enable_interpreter,
-            interpreter_ptc=interpreter_ptc,
-            interpreter_ptc_acknowledge_unsafe=interpreter_ptc_acknowledge_unsafe,
-            allow_fs_tools=allow_fs_tools,
-            rubric_model=rubric_model,
-            rubric_max_iterations=rubric_max_iterations,
-            recursion_limit=recursion_limit,
-            mcp_config_path=mcp_config_path,
-            no_mcp=no_mcp,
-            trust_project_mcp=trust_project_mcp,
-            trust_project_extensions=trust_project_extensions,
-            extension_paths=extension_paths,
-            interactive=False,
-            cwd=str(Path.cwd()),
-        ) as (agent, _server_proc):
+        async with (
+            owned_sandbox(
+                sandbox_type,
+                sandbox_id=sandbox_id,
+                snapshot_name=sandbox_snapshot_name,
+                quiet=quiet,
+            ) as owned_sandbox_id,
+            server_session(
+                assistant_id=assistant_id,
+                model_name=model_name,
+                model_params=model_params,
+                cli_max_retries=cli_max_retries,
+                profile_overrides=profile_override,
+                auto_approve=use_auto_approve,
+                interrupt_shell_only=use_interrupt_shell_only,
+                shell_allow_list=restrictive_allow_list,
+                sandbox_type=sandbox_type,
+                sandbox_id=owned_sandbox_id,
+                sandbox_snapshot_name=sandbox_snapshot_name,
+                sandbox_setup=sandbox_setup,
+                enable_shell=enable_shell,
+                enable_ask_user=False,
+                enable_interpreter=enable_interpreter,
+                interpreter_ptc=interpreter_ptc,
+                interpreter_ptc_acknowledge_unsafe=interpreter_ptc_acknowledge_unsafe,
+                allow_fs_tools=allow_fs_tools,
+                rubric_model=rubric_model,
+                rubric_max_iterations=rubric_max_iterations,
+                recursion_limit=recursion_limit,
+                mcp_config_path=mcp_config_path,
+                no_mcp=no_mcp,
+                trust_project_mcp=trust_project_mcp,
+                trust_project_extensions=trust_project_extensions,
+                extension_paths=extension_paths,
+                interactive=False,
+                cwd=str(Path.cwd()),
+            ) as (agent, _server_proc),
+        ):
             metadata = await agent.aget_model_metadata()
             metadata.apply_to_runtime_state()
             context_overrides = (

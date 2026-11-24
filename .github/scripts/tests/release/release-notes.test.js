@@ -511,6 +511,110 @@ test('prepares agent input from the exact validated head', async t => {
   assert.equal(calls.getContent[0].ref, HEAD);
 });
 
+test('draft retries discard stale output and regenerate from the refreshed head', async t => {
+  const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'release-retry-'));
+  t.after(() => fs.rmSync(runnerTemp, { recursive: true, force: true }));
+  const refreshed = GENERATED_SECTION.replace('add useful feature', 'add refreshed feature');
+  const { github, calls } = makeGithub({
+    onGetPr: ({ count, pr }) => {
+      if (count >= 3) pr.head.sha = APPLIED_HEAD;
+    },
+    files: new Map([[APPLIED_HEAD, changelog(refreshed)]]),
+  });
+  const inputs = [];
+  await releaseNotes.draftWithRetries({
+    github, owner: 'langchain-ai', repo: 'deepagents', number: 123,
+    expectedHead: HEAD, component: COMPONENT, version: VERSION,
+    runnerTemp, instructions: 'Keep it brief', core: makeCore(), ...BOT_AUTH,
+    draft: ({ input, output }) => {
+      inputs.push(fs.readFileSync(input, 'utf8'));
+      fs.writeFileSync(output, inputs.length === 1 ? 'Stale release notes' : 'Refreshed release notes');
+    },
+  });
+  assert.equal(inputs.length, 2);
+  assert.match(inputs[1], /add refreshed feature/);
+  assert.match(inputs[1], /Instructions: Keep it brief/);
+  assert.equal(calls.createComment.length, 1);
+  assert.match(calls.createComment[0].body, /Refreshed release notes/);
+  assert.doesNotMatch(calls.createComment[0].body, /Stale release notes/);
+  assert.match(calls.createComment[0].body, new RegExp(`release-pr-head: ${APPLIED_HEAD}`));
+});
+
+test('draft retries recover when the validated head changed before preparation', async t => {
+  const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'release-retry-'));
+  t.after(() => fs.rmSync(runnerTemp, { recursive: true, force: true }));
+  const { github, calls } = makeGithub({ pr: releasePr({ head: { ...releasePr().head, sha: APPLIED_HEAD } }) });
+  let drafts = 0;
+  await releaseNotes.draftWithRetries({
+    github, owner: 'langchain-ai', repo: 'deepagents', number: 123,
+    expectedHead: HEAD, component: COMPONENT, version: VERSION,
+    runnerTemp, core: makeCore(), ...BOT_AUTH,
+    draft: ({ output }) => { drafts += 1; fs.writeFileSync(output, 'Current release notes'); },
+  });
+  assert.equal(drafts, 1);
+  assert.equal(calls.createComment.length, 1);
+});
+
+test('draft retries stop after two retries without posting stale notes', async t => {
+  const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'release-retry-'));
+  t.after(() => fs.rmSync(runnerTemp, { recursive: true, force: true }));
+  let drafts = 0;
+  const { github, calls } = makeGithub({
+    onGetPr: ({ pr }) => { pr.head.sha = drafts === 0 ? HEAD : String(drafts).repeat(40); },
+  });
+  await assert.rejects(releaseNotes.draftWithRetries({
+    github, owner: 'langchain-ai', repo: 'deepagents', number: 123,
+    expectedHead: HEAD, component: COMPONENT, version: VERSION,
+    runnerTemp, core: makeCore(), ...BOT_AUTH,
+    draft: ({ output }) => { drafts += 1; fs.writeFileSync(output, 'Discard these release notes'); },
+  }), /changed while notes were being drafted/);
+  assert.equal(drafts, 3);
+  assert.equal(calls.createComment.length, 0);
+});
+
+test('draft retries fail closed when the release identity or readiness changes', async t => {
+  for (const change of [
+    pr => { pr.title = 'release(deepagents-code): 9.0.0'; },
+    pr => { pr.draft = true; },
+    pr => { pr.state = 'closed'; },
+    pr => { pr.head.repo.full_name = 'other/deepagents'; },
+    pr => { pr.title = `release(deepagents): ${VERSION}`; pr.head.ref = `${releaseNotes.RELEASE_BRANCH_PREFIX}deepagents`; },
+  ]) {
+    const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'release-retry-'));
+    t.after(() => fs.rmSync(runnerTemp, { recursive: true, force: true }));
+    const { github, calls } = makeGithub({ onGetPr: ({ count, pr }) => { if (count >= 2) change(pr); } });
+    let drafts = 0;
+    await assert.rejects(releaseNotes.draftWithRetries({
+      github, owner: 'langchain-ai', repo: 'deepagents', number: 123,
+      expectedHead: HEAD, component: COMPONENT, version: VERSION,
+      runnerTemp, core: makeCore(), ...BOT_AUTH,
+      draft: () => { drafts += 1; },
+    }), /changed before drafting started/);
+    assert.equal(drafts, 0);
+    assert.equal(calls.createComment.length, 0);
+  }
+});
+
+test('draft retries do not repeat model, validation, or publication failures', async t => {
+  for (const failure of ['model', 'invalid output', 'publication']) {
+    const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'release-retry-'));
+    t.after(() => fs.rmSync(runnerTemp, { recursive: true, force: true }));
+    const { github } = makeGithub({ onCreateComment: () => { throw new Error('publication failed'); } });
+    let drafts = 0;
+    await assert.rejects(releaseNotes.draftWithRetries({
+      github, owner: 'langchain-ai', repo: 'deepagents', number: 123,
+      expectedHead: HEAD, component: COMPONENT, version: VERSION,
+      runnerTemp, core: makeCore(), ...BOT_AUTH,
+      draft: ({ output }) => {
+        drafts += 1;
+        if (failure === 'model') throw new Error('model failed');
+        fs.writeFileSync(output, failure === 'invalid output' ? '' : 'Valid release notes');
+      },
+    }), failure === 'invalid output' ? /empty release notes/ : new RegExp(`${failure} failed`));
+    assert.equal(drafts, 1);
+  }
+});
+
 test('prepares drafting input and state with sanitized maintainer instructions', async t => {
   const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'release-notes-runner-'));
   t.after(() => fs.rmSync(runnerTemp, { recursive: true, force: true }));
@@ -546,6 +650,36 @@ test('prepares drafting input and state with sanitized maintainer instructions',
   assert.equal(JSON.parse(fs.readFileSync(raw.state, 'utf8')).instructions, 'keep it short');
 });
 
+test('drafting hides the generated Dependencies list from the model and appends it verbatim', async t => {
+  const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'release-notes-runner-'));
+  t.after(() => fs.rmSync(runnerTemp, { recursive: true, force: true }));
+  const dependencies = '### Dependencies\n\n- `langchain-core`: `>=1.8.0,<2.0.0` → `>=1.8.3,<2.0.0`';
+  const generated = `${GENERATED_SECTION}\n${dependencies}\n`;
+  const { github, calls } = makeGithub({ files: new Map([[HEAD, changelog(generated)]]) });
+  const prepared = await releaseNotes.prepareDraft({
+    github, owner: 'langchain-ai', repo: 'deepagents', number: 123, expectedHead: HEAD, runnerTemp,
+  });
+
+  const input = fs.readFileSync(prepared.input, 'utf8');
+  assert.match(input, /\* \*\*code:\*\* add useful feature/);
+  assert.ok(!input.includes('Dependencies'), input);
+  assert.ok(!input.includes('langchain-core'), input);
+  const state = JSON.parse(fs.readFileSync(prepared.state, 'utf8'));
+  assert.equal(state.dependencies, dependencies);
+  // The fingerprint still covers the full generated section, so a later change
+  // to the list goes stale exactly like a new generated entry.
+  assert.equal(state.fingerprint, releaseNotes.changelogFingerprint(generated));
+
+  // A model that invents its own list is overridden by the generated one.
+  fs.writeFileSync(prepared.output, '### Features\n\n* Add a useful feature.\n\n### Dependencies\n\n- made up\n');
+  await releaseNotes.postDraft({
+    github, owner: 'langchain-ai', repo: 'deepagents', stateFile: prepared.state, outputFile: prepared.output, core: makeCore(), ...BOT_AUTH,
+  });
+  const body = calls.createComment[0].body;
+  assert.ok(body.includes(`${HEADING}\n\n### Features\n\n* Add a useful feature.\n\n${dependencies}\n`), body);
+  assert.ok(!body.includes('made up'), body);
+});
+
 test('posts a bot-authored draft and refuses stale agent output', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-notes-post-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -565,7 +699,7 @@ test('posts a bot-authored draft and refuses stale agent output', async t => {
   assert.match(calls.createComment[0].body, /```\n@release-bot draft\n```/);
   assert.match(calls.createComment[0].body, /only way to skip the curated-notes merge gate/);
   // The header advertises the steering form so maintainers learn it from the draft.
-  assert.match(calls.createComment[0].body, /Keep the version heading intact\. To regenerate with steering/);
+  assert.match(calls.createComment[0].body, /Keep the version heading intact\. The `### Dependencies` list is generated from `pyproject\.toml`; don't edit it, or apply will fail\. To regenerate with steering/);
   assert.match(calls.createComment[0].body, /@release-bot draft <instructions>/);
   // No instructions were recorded in state, so nothing is echoed.
   assert.ok(!calls.createComment[0].body.includes('<details>'));
@@ -637,6 +771,50 @@ test('prepare apply replaces only the changelog section and records immutable ha
   assert.equal(state.baseHead, MAIN_HEAD);
   assert.equal(state.originalBodyHash, releaseNotes.exactSha256(releasePr().body));
   assert.match(state.body, /\* Add a useful feature/);
+});
+
+const GENERATED_DEPS = '### Dependencies\n\n- `langsmith`: `>=0.15.1` → `>=0.16.0`';
+
+async function applyWithDependencies(t, { draftDeps, changelogDeps }) {
+  const workspace = tempWorkspace();
+  t.after(() => fs.rmSync(workspace.root, { recursive: true, force: true }));
+  const generated = changelogDeps ? `${GENERATED_SECTION}\n${changelogDeps}\n` : GENERATED_SECTION;
+  const section = draftDeps ? `${CURATED_SECTION}\n${draftDeps}\n` : CURATED_SECTION;
+  const comments = [overrideComment({ section, fingerprint: releaseNotes.changelogFingerprint(generated) })];
+  const { github } = makeGithub({ comments, files: new Map([[HEAD, changelog(generated)]]) });
+  await releaseNotes.prepareApply({
+    github,
+    owner: 'langchain-ai',
+    repo: 'deepagents',
+    number: 123,
+    expectedHead: HEAD,
+    changelogFile: workspace.file,
+    stateFile: path.join(workspace.root, 'apply.json'),
+    ...BOT_AUTH,
+  });
+  return releaseNotes.extractVersionSection(fs.readFileSync(workspace.file, 'utf8'), VERSION);
+}
+
+test('apply writes an untouched generated Dependencies list', async t => {
+  const written = await applyWithDependencies(t, { draftDeps: GENERATED_DEPS, changelogDeps: GENERATED_DEPS });
+  assert.equal(written, releaseNotes.canonical(`${CURATED_SECTION}\n${GENERATED_DEPS}\n`));
+});
+
+test('apply refuses a draft whose Dependencies list was edited', async t => {
+  await assert.rejects(
+    applyWithDependencies(t, {
+      draftDeps: '### Dependencies\n\n- `langsmith`: `>=0.15.1` → `>=9.9.9`',
+      changelogDeps: GENERATED_DEPS,
+    }),
+    /`### Dependencies` list in the draft does not match the one generated from `pyproject\.toml`\. Restore the generated list in the draft comment, or run @release-bot draft/,
+  );
+});
+
+test('apply refuses a Dependencies list the changelog does not have', async t => {
+  await assert.rejects(
+    applyWithDependencies(t, { draftDeps: '### Dependencies\n\n- made up', changelogDeps: '' }),
+    /`### Dependencies` list in the draft does not match/,
+  );
 });
 
 test('apply rejects concurrent PR-body and override revisions', async t => {
@@ -856,7 +1034,7 @@ test('prepare apply requires a new scoped draft when main changed the package', 
       stateFile: path.join(workspace.root, 'state.json'),
       ...BOT_AUTH,
     }),
-    /main has new libs\/code changes since this draft; run @release-bot draft before apply/,
+    /libs\/code may have changed on main since this draft, or the changes could not be verified; run @release-bot draft before apply/,
   );
 });
 
@@ -1857,6 +2035,7 @@ test('postApplyFailure posts once per head and requires the configured bot', asy
   assert.equal(run.calls.createComment.length, 1);
   assert.match(run.calls.createComment[0].body, /Applying curated release notes failed/);
   assert.match(run.calls.createComment[0].body, /boom/);
+  assert.match(run.calls.createComment[0].body, /Resolve the issue above, then run `@release-bot apply` again/);
   // Dedup: a second failure for the same head does not add another comment.
   await releaseNotes.postApplyFailure({ github: run.github, owner: 'langchain-ai', repo: 'deepagents', number: 123, head: HEAD, ...BOT_AUTH, message: 'boom again' });
   assert.equal(run.calls.createComment.length, 1);
@@ -1867,6 +2046,30 @@ test('postApplyFailure posts once per head and requires the configured bot', asy
     /GitHub App bot is someone-else \(7\)/,
   );
   assert.equal(wrong.calls.createComment.length, 0);
+});
+
+test('postApplyFailure explains how to refresh and apply a stale draft', async () => {
+  const run = makeGithub({ comments: [] });
+  await releaseNotes.postApplyFailure({
+    github: run.github, owner: 'langchain-ai', repo: 'deepagents', number: 123, head: HEAD, ...BOT_AUTH,
+    message: 'libs/code may have changed on main since this draft, or the changes could not be verified; run @release-bot draft before apply',
+  });
+  const body = run.calls.createComment[0].body;
+  assert.match(body, /release PR refresh and lockfile updates finish/);
+  assert.match(body, /run `@release-bot draft`\. Review the regenerated notes, then run `@release-bot apply`/);
+  assert.match(body, /Details: libs\/code may have changed on main since this draft, or the changes could not be verified/);
+  assert.doesNotMatch(body, /run @release-bot draft before apply/);
+});
+
+test('postApplyFailure gives re-draft guidance when package comparison fails', async () => {
+  const run = makeGithub({ comments: [] });
+  await releaseNotes.postApplyFailure({
+    github: run.github, owner: 'langchain-ai', repo: 'deepagents', number: 123, head: HEAD, ...BOT_AUTH,
+    message: 'Could not compare main revisions to scope libs/code changes; run @release-bot draft',
+  });
+  const body = run.calls.createComment[0].body;
+  assert.match(body, /Could not compare main revisions to scope libs\/code changes/);
+  assert.match(body, /run `@release-bot draft`\. Review the regenerated notes, then run `@release-bot apply`/);
 });
 
 test('postDraftFailure posts rerun guidance once per head', async () => {

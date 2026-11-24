@@ -77,6 +77,15 @@ Values outside 1-900 seconds are ignored in favor of the next config source.
 Also settable via `[mcp].tool_timeout` in config.toml.
 """
 
+ASK_ABOUT_SELECTION = "DEEPAGENTS_CODE_ASK_ABOUT_SELECTION"
+"""Show "Ask about this" when conversation text is selected.
+
+Enabled by default; set to a falsy value (`0`, `false`, `no`, `off`) to hide
+it. Parsed by `classify_env_bool` (an unrecognized or empty value falls through
+to the config value rather than forcing the default). Also settable via
+`[ui].ask_about_selection` in config.toml. `/reload` applies a change.
+"""
+
 AUTO_UPDATE = "DEEPAGENTS_CODE_AUTO_UPDATE"
 """Toggle automatic app updates. Enabled by default; set to a falsy value
 ('0', 'false', 'no', 'off', or empty) to opt out."""
@@ -277,13 +286,20 @@ EXPERIMENTAL = "DEEPAGENTS_CODE_EXPERIMENTAL"
 Off by default; parsed by `is_env_truthy` (see there for the accepted truthy
 values). Marks experimental runs in UI/trace metadata. Behavior behind this
 flag may change or be removed without notice.
+
+Set only through the launching shell or global `~/.deepagents/.env`; a project
+`.env` cannot set it.
 """
 
 EXTENSIONS = "DEEPAGENTS_CODE_EXTENSIONS"
 """Enable loading installed-plugin and trusted-project Python extensions."""
 
 EXTENSIONS_TRUST = "DEEPAGENTS_CODE_EXTENSIONS_TRUST"
-"""Default project extension trust policy: `ask`, `always`, or `never`."""
+"""Default project extension trust policy: `ask`, `always`, or `never`.
+
+Set only through the launching shell or global `~/.deepagents/.env`; a project
+`.env` cannot set it.
+"""
 
 EXTERNAL_EVENT_SOCKET = "DEEPAGENTS_CODE_EXTERNAL_EVENT_SOCKET"
 """Enable the local Unix-socket external event listener.
@@ -296,7 +312,21 @@ EXTERNAL_EVENT_SOCKET_PATH = "DEEPAGENTS_CODE_EXTERNAL_EVENT_SOCKET_PATH"
 """Override the default Unix-socket path for the external event listener."""
 
 EXTRA_SKILLS_DIRS = "DEEPAGENTS_CODE_EXTRA_SKILLS_DIRS"
-"""Paths added to the skill containment allowlist, split with `os.pathsep`."""
+"""Paths added to the skill containment allowlist, split with `os.pathsep`.
+
+Set only through the launching shell or global `~/.deepagents/.env`; a project
+`.env` cannot set it.
+"""
+
+GIT_ATTRIBUTION = "DEEPAGENTS_CODE_GIT_ATTRIBUTION"
+"""Toggle git attribution of LangSmith traces (defaults to on).
+
+When enabled and tracing is active, dcode runs bounded, read-only `git`
+inspections around tools that can change a checkout, so traces record the
+repository and branch the agent actually worked on. Set to a falsy value (`0`,
+`false`, `no`, `off`, or empty) to skip these inspections entirely, for example
+in very large repositories. Also configurable as `[tracing].git_attribution`.
+"""
 
 GOAL_AUTO_ACCEPT_CRITERIA = "DEEPAGENTS_CODE_GOAL_AUTO_ACCEPT_CRITERIA"
 """Apply generated goal criteria automatically in Auto mode.
@@ -359,6 +389,14 @@ KITTY_KEYBOARD = "DEEPAGENTS_CODE_KITTY_KEYBOARD"
 
 LANGSMITH_PROJECT = "DEEPAGENTS_CODE_LANGSMITH_PROJECT"
 """Override LangSmith project name for agent traces."""
+
+LANGSMITH_PROJECT_URL = "DEEPAGENTS_CODE_LANGSMITH_PROJECT_URL"
+"""LangSmith URL of the project named by `DEEPAGENTS_CODE_LANGSMITH_PROJECT`.
+
+When set, thread links and `/trace` use this URL instead of looking the project
+up, so the API key does not need project read access. It is ignored when the
+active project is a different one.
+"""
 
 LANGSMITH_REDACT = "DEEPAGENTS_CODE_LANGSMITH_REDACT"
 """Toggle LangSmith secret redaction for agent traces (defaults to on)."""
@@ -458,12 +496,17 @@ Set to a truthy value to bring the standalone integrations screen back into the
 flow. Parsed by `is_env_truthy`: accepts `1`, `true`, `yes`, `on` as enabled.
 """
 
-OPENAI_PROMPT_CACHE_KEY = "DEEPAGENTS_CODE_OPENAI_PROMPT_CACHE_KEY"
-"""Toggle injecting a per-thread OpenAI `prompt_cache_key` (defaults to on).
+PROVIDER_TOOL_SEARCH = "DEEPAGENTS_CODE_PROVIDER_TOOL_SEARCH"
+"""Toggle native MCP tool discovery on verified endpoints (defaults to on)."""
 
-When enabled, OpenAI-provider model calls receive the active thread ID as a
-top-level `prompt_cache_key`, giving more reliable prompt-cache prefix routing
-across turns. It is attempted for every model whose provider resolves to
+OPENAI_PROMPT_CACHE_KEY = "DEEPAGENTS_CODE_OPENAI_PROMPT_CACHE_KEY"
+"""Toggle injecting a per-install OpenAI `prompt_cache_key` (defaults to on).
+
+When enabled, OpenAI-provider model calls receive a top-level `prompt_cache_key`
+of the form `dcode_v1:<install id>`, where the install ID is a random value
+persisted in the profile state directory. Every thread from the same install
+shares the key, so the common system-prompt prefix stays in one cache group
+across sessions. It is attempted for every model whose provider resolves to
 `openai` regardless of base URL (official API, the LangSmith gateway, and other
 OpenAI-compatible endpoints), because the field is optional and additive. Set to
 a falsy value (`0`, `false`, `no`, `off`) to opt out for endpoints that reject
@@ -485,6 +528,8 @@ PLUGIN_CACHE_DIR = "DEEPAGENTS_CODE_PLUGIN_CACHE_DIR"
 """Override the plugin install/marketplace cache root.
 
 When unset, plugins are stored under `DEFAULT_CONFIG_DIR / "plugins"`.
+Set only through the launching shell or global `~/.deepagents/.env`; a project
+`.env` cannot set it.
 """
 
 PRICES_AUTO_UPDATE = "DEEPAGENTS_CODE_PRICES_AUTO_UPDATE"
@@ -564,7 +609,11 @@ SERVER_ENV_PREFIX = "DEEPAGENTS_CODE_SERVER_"
 """Environment variable prefix used to pass CLI config to the server subprocess."""
 
 SHELL_ALLOW_LIST = "DEEPAGENTS_CODE_SHELL_ALLOW_LIST"
-"""Comma-separated shell commands to allow (or 'recommended'/'all')."""
+"""Comma-separated shell commands to allow (or 'recommended'/'all').
+
+Set only through the launching shell or global `~/.deepagents/.env`; a project
+`.env` cannot set it.
+"""
 
 SHOW_HEADER = "DEEPAGENTS_CODE_SHOW_HEADER"
 """Show Textual's native header bar at the top of the TUI when enabled."""
@@ -665,6 +714,17 @@ rather than forcing the default). A blank value — empty or whitespace-only —
 counts as `false` because the option declares `empty_env_is_false`, so it
 overrides `config.toml` instead of falling through. Also settable via
 `[ui].terminal_progress` in config.toml. `NO_TERMINAL_ESCAPE` suppresses the
+sequence regardless.
+"""
+
+TERMINAL_STATUS = "DEEPAGENTS_CODE_TERMINAL_STATUS"
+"""Report agent status to the terminal with `OSC 7501` (Program Status Protocol).
+
+Terminals and multiplexers that support the protocol (such as Herdr) show
+whether the agent is working, waiting on you, done, or failed. Enabled by
+default; set to a falsy value (`0`, `false`, `no`, `off`, or blank) to stop
+emitting the sequence. Parsed like `TERMINAL_PROGRESS`. Also settable via
+`[ui].terminal_status` in config.toml. `NO_TERMINAL_ESCAPE` suppresses the
 sequence regardless.
 """
 

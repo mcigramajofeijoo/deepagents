@@ -2,6 +2,18 @@
 
 # Changelog
 
+## [0.0.8](https://github.com/langchain-ai/deepagents/compare/langchain-modal==0.0.7...langchain-modal==0.0.8) (2026-11-13)
+
+### Bug Fixes
+
+- Updated `ModalSandbox` file I/O to use the `Sandbox.filesystem` API ([#7664](https://github.com/langchain-ai/deepagents/pull/7664)).
+
+## [0.0.7](https://github.com/langchain-ai/deepagents/compare/langchain-modal==0.0.6...langchain-modal==0.0.7) (2026-10-26)
+
+### Bug Fixes
+
+- Handle per-file permission and directory errors ([#7241](https://github.com/langchain-ai/deepagents/pull/7241)).
+
 ## [0.0.6](https://github.com/langchain-ai/deepagents/compare/langchain-modal==0.0.5...langchain-modal==0.0.6) (2026-07-29)
 
 ### Bug Fixes

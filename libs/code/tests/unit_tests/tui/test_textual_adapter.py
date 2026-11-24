@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    ToolMessage,
+    get_notification_metadata,
+)
 from langgraph.graph.message import add_messages
 from langgraph.types import Command
 from pydantic import ValidationError
@@ -629,6 +634,9 @@ class TestInterruptCleanup:
         assert saved["messages"][1].content == (
             "[SYSTEM] Task interrupted by user. Previous operation was cancelled."
         )
+        assert get_notification_metadata(saved["messages"][1]) == {
+            "source": "task_interrupted"
+        }
         assert saved["_context_tokens"] == 15
 
     async def test_disabled_recovery_does_not_save_state(self) -> None:
@@ -1130,11 +1138,27 @@ class TestBuildStreamConfig:
         ):
             assert _get_deepagents_version() is None
 
+        _get_deepagents_version.cache_clear()
         with patch(
             "deepagents_code.extras_info.resolve_sdk_version",
             return_value=("1.2.3", "resolved"),
         ):
             assert _get_deepagents_version() == "1.2.3"
+
+    def test_sdk_version_resolved_once_across_turns(self) -> None:
+        """Repeated stream configs reuse one SDK version lookup.
+
+        `build_stream_config` runs on every turn, and the lookup scans installed
+        distributions, so it must not repeat per turn.
+        """
+        with patch(
+            "deepagents_code.extras_info.resolve_sdk_version",
+            return_value=("1.2.3", "resolved"),
+        ) as resolver:
+            for turn in range(3):
+                config = build_stream_config(f"t-{turn}", assistant_id=None)
+                assert config["metadata"]["dcode_client_deepagents_version"] == "1.2.3"
+        resolver.assert_called_once()
 
     def test_versions_editable_with_resolved_sdk_version(self) -> None:
         """Editable suffix and SDK diagnostic version are populated independently."""
@@ -2787,6 +2811,47 @@ class TestExecuteTaskTextualAutoModeClassifier:
         assert [message._content for message in messages] == ["Done."]
         # Summarization still completes: exactly one notification, spinner
         # passes through "Offloading" and settles back on "Thinking".
+        assert sum(isinstance(w, SummarizationMessage) for w in mounted) == 1
+        assert "Offloading" in statuses
+        assert statuses[-1] == "Thinking"
+
+    async def test_nostream_summarization_start_event_shows_feedback(self) -> None:
+        """A `nostream` summary streams no chunks, only a custom start event."""
+        mounted: list[object] = []
+        statuses: list[str | None] = []
+
+        async def mount_message(widget: object) -> bool:
+            await asyncio.sleep(0)
+            mounted.append(widget)
+            return True
+
+        async def record_spinner(status: str | None) -> None:
+            await asyncio.sleep(0)
+            statuses.append(status)
+
+        chunks = [
+            ((), "custom", {"type": "summarization_started"}),
+            ((), "messages", (_text_message("Done."), {})),
+        ]
+        adapter = TextualUIAdapter(
+            mount_message=mount_message,
+            update_status=_noop_status,
+            request_approval=_mock_approval,
+            set_spinner=record_spinner,
+        )
+
+        with patch(
+            "deepagents_code.tui.textual_adapter.AssistantMessage",
+            side_effect=self.FakeAssistantMessage,
+        ):
+            await execute_task_textual(
+                user_input="edit the file",
+                agent=_FakeAgent(chunks),
+                assistant_id="assistant",
+                session_state=_session_state(approval_mode=ApprovalMode.AUTO),
+                adapter=adapter,
+            )
+
         assert sum(isinstance(w, SummarizationMessage) for w in mounted) == 1
         assert "Offloading" in statuses
         assert statuses[-1] == "Thinking"
@@ -8150,6 +8215,105 @@ async def test_reasoning_streams_separately_and_collapses_before_answer() -> Non
     assert reasoning._expanded is False
     assert reasoning._streaming is False
     assert answer._content == "answer"
+
+
+class TestTruncatedReplyWarning:
+    """A reply cut off after some output keeps its output and gets a warning."""
+
+    @staticmethod
+    async def _run(*messages: Any) -> list[object]:
+        mount_message, mounted = _collect_mounts()
+        adapter = TextualUIAdapter(
+            mount_message=mount_message,
+            update_status=_noop_status,
+            request_approval=_mock_approval,
+        )
+        await execute_task_textual(
+            user_input="hello",
+            agent=_FakeAgent([((), "messages", (m, {})) for m in messages]),
+            assistant_id="assistant",
+            session_state=_session_state(),
+            adapter=adapter,
+        )
+        return mounted
+
+    @staticmethod
+    def _warnings(mounted: list[object]) -> list[str]:
+        return [
+            str(widget._content)
+            for widget in mounted
+            if isinstance(widget, AppMessage) and "cut off" in str(widget._content)
+        ]
+
+    async def test_partial_reply_is_kept_and_warned_once(self) -> None:
+        from langchain_core.messages import AIMessageChunk
+
+        mounted = await self._run(
+            AIMessageChunk(content="Partial answer", id="m-1"),
+            AIMessageChunk(
+                content="",
+                id="m-1",
+                chunk_position="last",
+                response_metadata={"finish_reason": "length"},
+            ),
+        )
+
+        assert self._warnings(mounted) == [
+            "The reply was cut off: it reached its output token limit (length)."
+        ]
+        replies = [w for w in mounted if isinstance(w, AssistantMessage)]
+        assert len(replies) == 1
+        assert mounted.index(replies[0]) < mounted.index(
+            next(w for w in mounted if isinstance(w, AppMessage))
+        )
+
+    @pytest.mark.parametrize("args", ["{}", "]"])
+    async def test_partial_tool_call_is_warned(self, args: str) -> None:
+        from langchain_core.messages import AIMessageChunk
+
+        mounted = await self._run(
+            AIMessageChunk(
+                content=[],
+                id="m-1",
+                tool_call_chunks=[
+                    {"name": "ls", "args": args, "id": "call-1", "index": 0}
+                ],
+                chunk_position="last",
+                response_metadata={"stop_reason": "max_tokens"},
+            ),
+        )
+
+        assert self._warnings(mounted) == [
+            "The reply was cut off: it reached its output token limit (max_tokens)."
+        ]
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param(
+                {
+                    "content": [],
+                    "response_metadata": {
+                        "status": "incomplete",
+                        "incomplete_details": {"reason": "max_output_tokens"},
+                    },
+                },
+                id="empty-truncated-reply-is-a-server-error",
+            ),
+            pytest.param(
+                {"content": "Done.", "response_metadata": {"finish_reason": "stop"}},
+                id="normal-reply",
+            ),
+        ],
+    )
+    async def test_no_warning(self, message: dict[str, Any]) -> None:
+        from langchain_core.messages import AIMessageChunk
+
+        mounted = await self._run(
+            AIMessageChunk(id="m-1", chunk_position="last", **message)
+        )
+
+        assert self._warnings(mounted) == []
 
 
 class TestModelRetryLifecycleReconciliation:

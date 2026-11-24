@@ -216,6 +216,14 @@ class TestServerPortSelection:
         ),
         ("exit", MissingCredentialsError("Credentials missing", provider="custom")),
         (
+            "health_timeout",
+            MissingProviderPackageError(
+                "Provider package missing",
+                provider="fireworks",
+                package="langchain-fireworks",
+            ),
+        ),
+        (
             "transport",
             MissingProviderPackageError(
                 "Provider package missing",
@@ -255,8 +263,13 @@ async def test_startup_preserves_recovery_errors(
     )
 
     ready = (
-        wait_for_server_healthy(server.url, process=process, read_log=lambda: output)
-        if phase == "health"
+        wait_for_server_healthy(
+            server.url,
+            process=process,
+            read_log=lambda: output,
+            timeout=0 if phase == "health_timeout" else 60,
+        )
+        if phase in {"health", "health_timeout"}
         else server.wait_for_graph_ready()
     )
     with (
@@ -293,6 +306,21 @@ def test_invalid_recovery_details_preserve_fallback(payload: str) -> None:
 
 class TestWaitForServerHealthy:
     """Tests for the health-check polling loop."""
+
+    async def test_timeout_keeps_diagnostics(self) -> None:
+        from deepagents_code.client.launch.server import ServerStartupTimeoutError
+
+        output = "DEEPAGENTS_STARTUP_ERROR:Integration initialization failed\n"
+        with (
+            patch("httpx.AsyncClient", return_value=_FakeAsyncClient(OSError())),
+            pytest.raises(ServerStartupTimeoutError) as caught,
+        ):
+            await wait_for_server_healthy(
+                "http://localhost:2024", timeout=0, read_log=lambda: output
+            )
+
+        assert "Integration initialization failed" in str(caught.value).splitlines()[0]
+        assert output in str(caught.value)
 
     async def test_early_exit_promotes_marked_startup_error(self) -> None:
         """Marked server startup errors should survive app error trimming."""
@@ -497,6 +525,81 @@ class TestServerProcess:
         assert server._log_file is None
         assert not config_dir.exists()
         assert not log_path.exists()
+
+    async def test_after_spawn_runs_between_spawn_and_health_check(
+        self, tmp_path: Path
+    ) -> None:
+        """`after_spawn` overlaps server boot but finishes before health checks."""
+        config_dir = tmp_path / "runtime"
+        config_dir.mkdir()
+        (config_dir / "langgraph.json").write_text("{}")
+        events: list[str] = []
+
+        def spawn(*_args: object, **_kwargs: object) -> MagicMock:
+            events.append("spawn")
+            process = MagicMock()
+            process.poll.return_value = None
+            return process
+
+        async def after_spawn() -> None:  # noqa: RUF029  # matches the awaited hook
+            events.append("after_spawn")
+
+        async def healthy(*_args: object, **_kwargs: object) -> None:  # noqa: RUF029
+            events.append("health_check")
+
+        server = ServerProcess(config_dir=config_dir)
+        with (
+            patch(
+                "deepagents_code.client.launch.server._find_free_port",
+                return_value=12345,
+            ),
+            patch(
+                "deepagents_code.client.launch.server.subprocess.Popen",
+                side_effect=spawn,
+            ),
+            patch(
+                "deepagents_code.client.launch.server.wait_for_server_healthy",
+                new=healthy,
+            ),
+        ):
+            await server.start(after_spawn=after_spawn)
+
+        assert events == ["spawn", "after_spawn", "health_check"]
+
+    async def test_after_spawn_cancellation_reaps_subprocess(
+        self, tmp_path: Path
+    ) -> None:
+        """Cancelling during `after_spawn` must not orphan the spawned server."""
+        config_dir = tmp_path / "runtime"
+        config_dir.mkdir()
+        (config_dir / "langgraph.json").write_text("{}")
+        process = MagicMock()
+        process.poll.return_value = None
+        health_check = AsyncMock()
+
+        server = ServerProcess(config_dir=config_dir)
+        with (
+            patch(
+                "deepagents_code.client.launch.server._find_free_port",
+                return_value=12345,
+            ),
+            patch(
+                "deepagents_code.client.launch.server.subprocess.Popen",
+                return_value=process,
+            ),
+            patch(
+                "deepagents_code.client.launch.server.wait_for_server_healthy",
+                new=health_check,
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await server.start(
+                after_spawn=AsyncMock(side_effect=asyncio.CancelledError)
+            )
+
+        health_check.assert_not_awaited()
+        process.send_signal.assert_called_once_with(signal.SIGTERM)
+        assert server._process is None
 
     async def test_start_cleanup_error_does_not_mask_startup_error(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -1070,7 +1173,9 @@ class TestServerProcessStopIdempotency:
         """Repeated `stop()` calls tear the process down only once."""
         server = ServerProcess(host="127.0.0.1", port=2024)
         calls: list[int] = []
-        monkeypatch.setattr(server, "_stop_process_locked", lambda: calls.append(1))
+        monkeypatch.setattr(
+            server, "_stop_process_locked", lambda **_kwargs: calls.append(1)
+        )
 
         server.stop()
         server.stop()
@@ -1090,7 +1195,7 @@ class TestServerProcessStopIdempotency:
         release = threading.Event()
         calls: list[int] = []
 
-        def slow_stop_process() -> None:
+        def slow_stop_process(*, grace: float | None = None) -> None:  # noqa: ARG001
             calls.append(1)
             entered.set()
             release.wait(timeout=2.0)
@@ -1468,6 +1573,42 @@ class TestTerminateServerProcess:
         ]
         process.wait.assert_called_once_with()
         process.kill.assert_not_called()
+
+    def test_grace_overrides_shutdown_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit `grace` replaces the full graceful window.
+
+        Abandoned startups pass a short grace so a server stuck in its graph
+        build is killed without holding the full `_SHUTDOWN_TIMEOUT`.
+        """
+        self._patch_own_group(monkeypatch)
+        group_killed = False
+
+        def _killpg(_pgid: int, sig: int) -> None:
+            nonlocal group_killed
+            if sig == signal.SIGKILL:
+                group_killed = True
+            elif sig == 0 and group_killed:
+                raise ProcessLookupError
+
+        def _no_wait(_seconds: float) -> None:
+            msg = "a zero grace must escalate without waiting"
+            raise AssertionError(msg)
+
+        killpg = MagicMock(side_effect=_killpg)
+        monkeypatch.setattr("deepagents_code.client.launch.server.os.killpg", killpg)
+        monkeypatch.setattr("deepagents_code.client.launch.server.time.sleep", _no_wait)
+        process = self._own_group_process()
+
+        _terminate_server_process(process, grace=0)
+
+        assert killpg.call_args_list == [
+            ((4321, signal.SIGTERM),),
+            ((4321, 0),),
+            ((4321, signal.SIGKILL),),
+            ((4321, 0),),
+        ]
 
     def test_group_wait_ignores_exited_leader(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1912,3 +2053,99 @@ class TestTerminateServerProcess:
 
         assert "Dropping handle to server pid=4321 that is still running" in caplog.text
         assert server._process is None
+
+
+class TestLoopbackProxyBypass:
+    """Local probes stay direct without changing other clients' routing."""
+
+    @pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
+    @pytest.mark.parametrize("proxy_source", ["environment", "system"])
+    async def test_start_preserves_proxy_policy(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        host: str,
+        proxy_source: str,
+    ) -> None:
+        """Startup preserves separate OS exceptions and the child's environment."""
+        import urllib.request
+
+        import httpx
+        import httpx._utils
+        import requests.utils
+
+        for name in tuple(os.environ):
+            if name.lower().endswith("_proxy"):
+                monkeypatch.delenv(name)
+        proxies = {
+            "http": "http://company-gateway:8080",
+            "https": "http://company-gateway:8443",
+        }
+        if proxy_source == "environment":
+            monkeypatch.setenv("HTTP_PROXY", proxies["http"])
+            monkeypatch.setenv("HTTPS_PROXY", proxies["https"])
+            monkeypatch.setenv("NO_PROXY", "corp.internal")
+
+        def get_proxies() -> dict[str, str]:
+            return urllib.request.getproxies_environment() or proxies
+
+        def bypass_proxy(hostname: str) -> bool:
+            env = urllib.request.getproxies_environment()
+            if env:
+                return any(
+                    hostname == host or hostname.endswith(f".{host}")
+                    for host in env.get("no", "").split(",")
+                    if host
+                )
+            return hostname.endswith(".corp.internal")
+
+        monkeypatch.setattr(httpx._utils, "getproxies", get_proxies)
+        monkeypatch.setattr(urllib.request, "getproxies", get_proxies)
+        monkeypatch.setattr(requests.utils, "getproxies", get_proxies)
+        monkeypatch.setattr(requests.utils, "proxy_bypass", bypass_proxy)
+        before = dict(os.environ)
+        direct = MagicMock(return_value=httpx.Response(200))
+        proxy = MagicMock(return_value=httpx.Response(200))
+        monkeypatch.setattr(
+            httpx.AsyncClient,
+            "_init_transport",
+            MagicMock(return_value=httpx.MockTransport(direct)),
+        )
+        monkeypatch.setattr(
+            httpx.AsyncClient,
+            "_init_proxy_transport",
+            MagicMock(return_value=httpx.MockTransport(proxy)),
+        )
+        (tmp_path / "langgraph.json").write_text("{}")
+        server = ServerProcess(config_dir=tmp_path, host=host, port=43210)
+        process = MagicMock(pid=1234)
+        process.poll.return_value = None
+        try:
+            with (
+                patch.object(server_module, "_port_in_use", return_value=False),
+                patch.object(server, "_launch_process", return_value=process) as launch,
+            ):
+                await server.start()
+                await server.wait_for_graph_ready()
+            assert [call.args[0].url.path for call in direct.call_args_list] == [
+                "/ok",
+                "/assistants/agent/graph",
+            ]
+            proxy.assert_not_called()
+            assert dict(os.environ) == before
+            child_env = launch.call_args.args[2]
+            assert {
+                k: v for k, v in child_env.items() if k.lower().endswith("_proxy")
+            } == {k: v for k, v in before.items() if k.lower().endswith("_proxy")}
+            assert (
+                requests.utils.get_environ_proxies("https://smith.corp.internal") == {}
+            )
+            assert (
+                requests.utils.get_environ_proxies("https://api.example.com")["https"]
+                == proxies["https"]
+            )
+            await wait_for_server_healthy("https://remote.example.com")
+            assert proxy.call_count == 1
+        finally:
+            server._process = None
+            server._stop_process()

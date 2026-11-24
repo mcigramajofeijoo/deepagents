@@ -1447,6 +1447,51 @@ class TestExecuteOffload:
         threads.update_state.assert_not_awaited()
         prepared.rollback.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("context", "expected"),
+        [
+            ({"offload_trigger": "idle"}, "idle"),
+            ({"offload_trigger": "manual"}, "manual"),
+            ({}, "manual"),
+            ({"offload_trigger": "bogus"}, "manual"),
+        ],
+        ids=["idle", "manual", "absent", "unrecognized"],
+    )
+    async def test_trace_metadata_records_offload_trigger(
+        self, context: dict[str, object], expected: str
+    ) -> None:
+        """The summarizer's traces say whether idle compaction or `/offload` ran."""
+        from langchain_core.runnables.config import var_child_runnable_config
+
+        from deepagents_code import offload_api
+
+        before = _thread_state()
+        noop_result = {**_result(), "status": "noop"}
+        seen: list[dict[str, object]] = []
+
+        async def execute(*_args: object, **_kwargs: object) -> OffloadExecution:  # noqa: RUF029  # AsyncMock side effect contract
+            config = var_child_runnable_config.get() or {}
+            seen.append(dict(config.get("metadata") or {}))
+            return OffloadExecution({}, noop_result)  # ty: ignore[invalid-argument-type]
+
+        threads = SimpleNamespace(
+            get=AsyncMock(return_value={"status": "idle"}),
+            get_state=AsyncMock(side_effect=[before, before]),
+            update_state=AsyncMock(),
+        )
+        operation = SimpleNamespace(execute=AsyncMock(side_effect=execute))
+        prepared = SimpleNamespace(update={}, rollback=MagicMock(), commit=MagicMock())
+
+        with self._patched(offload_api, threads, operation, prepared):
+            await offload_api._execute_offload(
+                "thread-1",
+                operation_id="operation-1",
+                context=context,
+                hook_responses={},
+            )
+
+        assert seen == [{"dcode_offload_trigger": expected}]
+
     async def test_write_failure_without_advance_restores_cost(self) -> None:
         """A write that provably did not land returns its records to the recorder."""
         from deepagents_code import offload_api
@@ -1962,6 +2007,21 @@ def _new_flush_thread(existing: set[threading.Thread]) -> threading.Thread:
     return started[0]
 
 
+@pytest.fixture
+def runtime_prebuild() -> Iterator[AsyncMock]:
+    """Replace the lifespan's runtime prebuild with a mock.
+
+    Entering the app lifespan starts a default runtime build. Without this stub,
+    tests that run the lifespan would build a real agent from the environment.
+
+    Yields:
+        The mock that stands in for `get_server_runtime`.
+    """
+    build = AsyncMock()
+    with patch("deepagents_code.server_graph.get_server_runtime", build):
+        yield build
+
+
 def _join_flush_threads(existing: set[threading.Thread]) -> None:
     """Wait for flush threads started after the supplied snapshot."""
     for thread in threading.enumerate():
@@ -2052,8 +2112,56 @@ class TestValidateContext:
         _validate_context({"summarization_model": value})
 
 
+@pytest.mark.usefixtures("runtime_prebuild")
 class TestLifespan:
-    """Shutdown flushes buffered LangSmith traces."""
+    """Startup prebuilds the runtime; shutdown flushes buffered traces."""
+
+    async def test_prebuilds_runtime_without_a_request(
+        self, runtime_prebuild: AsyncMock
+    ) -> None:
+        """The build starts at startup, before the client asks for the graph."""
+        from deepagents_code import offload_api
+
+        async with offload_api.app.router.lifespan_context(offload_api.app):
+            await asyncio.sleep(0)
+            runtime_prebuild.assert_awaited_once_with()
+
+    async def test_shutdown_cancels_an_unfinished_prebuild(
+        self, runtime_prebuild: AsyncMock
+    ) -> None:
+        """A build still running at shutdown is cancelled and joined."""
+        from deepagents_code import offload_api
+
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def hang() -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        runtime_prebuild.side_effect = hang
+        async with offload_api.app.router.lifespan_context(offload_api.app):
+            await started.wait()
+
+        assert cancelled.is_set()
+
+    async def test_failed_prebuild_is_logged(
+        self, runtime_prebuild: AsyncMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failed build is reported, not left as an unretrieved task error."""
+        from deepagents_code import offload_api
+
+        runtime_prebuild.side_effect = RuntimeError("build exploded")
+        with caplog.at_level(logging.WARNING, logger=offload_api.__name__):
+            async with offload_api.app.router.lifespan_context(offload_api.app):
+                await asyncio.sleep(0)
+
+        assert "Server runtime prebuild failed" in caplog.text
+        assert "build exploded" in caplog.text
 
     async def test_flushes_existing_tracing_client(self) -> None:
         """The flush happens on shutdown, not on startup."""
@@ -2198,6 +2306,7 @@ class TestLifespan:
         assert "SystemExit" in caplog.text
 
 
+@pytest.mark.usefixtures("runtime_prebuild")
 class TestRouteRegistration:
     """The Starlette app exposes the paths and methods the client calls.
 

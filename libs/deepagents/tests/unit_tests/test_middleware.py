@@ -927,6 +927,20 @@ class TestFilesystemMiddleware:
         assert TRUNCATION_GUIDANCE in result.content
         assert GREP_TRUNCATION_NOTE in result.content
 
+    def test_grep_clips_long_line_around_match(self):
+        """A match on a huge single line (e.g. offloaded minified JSON) shows a window around the hit, not the line."""
+        line = '{"items": [' + '{"k": "v"}, ' * 8000 + '{"order_id": "abc-123"}, ' + '{"k": "v"}, ' * 8000 + "]}"
+        files = {"/large_tool_results/call_1": FileData(content=line, modified_at="2021-01-01", created_at="2021-01-01")}
+        backend, _ = _make_backend(files)
+        middleware = FilesystemMiddleware(backend=backend)
+        grep_search_tool = next(tool for tool in middleware.tools if tool.name == "grep")
+
+        result = grep_search_tool.invoke({"pattern": "order_id", "output_mode": "content", "runtime": _runtime()})
+
+        assert '"order_id": "abc-123"' in result.content
+        assert len(result.content) < 3000
+        assert "chars clipped]" in result.content
+
     async def test_async_grep_truncated_renders_as_success_with_note(self):
         """The async grep handler renders a truncated result as success with the note (parity with sync)."""
         backend, _ = _make_backend()
@@ -1203,7 +1217,7 @@ class TestFilesystemMiddleware:
         backend, _ = _make_backend(files)
         middleware = FilesystemMiddleware(
             backend=backend,
-            _permissions=[FilesystemPermission(operations=["read"], paths=["/secret.py"], mode="deny")],
+            permissions=[FilesystemPermission(operations=["read"], paths=["/secret.py"], mode="deny")],
         )
         grep_search_tool = next(tool for tool in middleware.tools if tool.name == "grep")
         result = grep_search_tool.invoke(
@@ -3122,7 +3136,7 @@ class TestFilesystemMiddleware:
         assert "Hello world\nLine 2" in result.content
         assert "succeeded" in result.content
         assert "exit code 0" in result.content
-        assert result.artifact == {"exit_code": 0}
+        assert result.artifact == {"exit_code": 0, "truncated": False}
 
     def test_execute_tool_output_formatting_with_failure(self):
         """Test execute tool formats failure output correctly."""
@@ -3159,7 +3173,7 @@ class TestFilesystemMiddleware:
         assert "Error: command not found" in result.content
         assert "failed" in result.content
         assert "exit code 127" in result.content
-        assert result.artifact == {"exit_code": 127}
+        assert result.artifact == {"exit_code": 127, "truncated": False}
 
     def test_execute_tool_omits_artifact_exit_code_when_unknown(self):
         """Test execute tool omits `exit_code` when the backend reports none."""
@@ -3192,7 +3206,7 @@ class TestFilesystemMiddleware:
         # The content omits the status line entirely for an unknown exit code, so the
         # artifact must not imply one either.
         assert "exit code" not in result.content
-        assert result.artifact == {}
+        assert result.artifact == {"truncated": False}
 
     def test_execute_tool_error_paths_carry_no_artifact(self):
         """Test execute tool returns no artifact when no command ran."""
@@ -3266,6 +3280,7 @@ class TestFilesystemMiddleware:
 
         assert "Very long output..." in result.content
         assert "truncated" in result.content
+        assert result.artifact == {"exit_code": 0, "truncated": True}
 
     def testsupports_execution_helper_with_composite_backend(self):
         """Test supports_execution correctly identifies CompositeBackend capabilities."""

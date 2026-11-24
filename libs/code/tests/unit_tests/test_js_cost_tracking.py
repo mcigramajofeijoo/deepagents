@@ -28,16 +28,18 @@ from deepagents.middleware import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool, tool
+from langchain_quickjs._repl import _REGISTRY
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.errors import GraphInterrupt, NodeCancelledError, ParentCommand
+from langgraph.prebuilt.tool_node import ToolRuntime
 from langgraph.types import Command, interrupt
 
 from deepagents_code import cost_tracking
 from deepagents_code._fake_models import _ToolBindingFakeModel
-from deepagents_code._js_cost import CostAwareCodeInterpreterMiddleware
+from deepagents_code._js_cost import CostAwareCodeInterpreterMiddleware, _cost_task
 from deepagents_code.cost_tracking import CostTrackingMiddleware
 
-_INTERPRETERS: list[CostAwareCodeInterpreterMiddleware] = []
 _CONFIG: RunnableConfig = {"configurable": {"thread_id": "js-cost"}}
 
 
@@ -81,9 +83,6 @@ def controlled_cost(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     token = cost_tracking._RECORDER_VAR.set(cost_tracking._SessionCostRecorder())
     yield
     cost_tracking._RECORDER_VAR.reset(token)
-    for interpreter in _INTERPRETERS:
-        interpreter._registry.close()
-    _INTERPRETERS.clear()
 
 
 def _call(code: str, *, message_id: str = "parent-call") -> AIMessage:
@@ -126,7 +125,6 @@ def _parent(
     mode: Literal["thread", "turn", "call"] = "thread",
 ) -> CompiledStateGraph:
     interpreter = CostAwareCodeInterpreterMiddleware(tool_name="js_eval", mode=mode)
-    _INTERPRETERS.append(interpreter)
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         CostTrackingMiddleware(nested=nested),
         SubAgentMiddleware(
@@ -202,10 +200,17 @@ async def _assert_accounting(
 
 
 def _fresh_runtime() -> None:
-    for interpreter in _INTERPRETERS:
-        interpreter._registry.close()
-    _INTERPRETERS.clear()
     cost_tracking._RECORDER_VAR.set(cost_tracking._SessionCostRecorder())
+
+
+async def _settle_cancelled_eval(agent: CompiledStateGraph) -> None:
+    """Wait for a cancelled eval to finish unwinding on its QuickJS worker."""
+    slot_id = (await agent.aget_state(_CONFIG)).values["_quickjs_slot_id"]
+    slots = [slot for (key, _), slot in _REGISTRY._slots.items() if key == slot_id]
+    assert slots
+    async with asyncio.timeout(5):
+        while any(slot.eval_running for slot in slots):  # noqa: ASYNC110  # cleared on the worker thread
+            await asyncio.sleep(0.01)
 
 
 @pytest.mark.filterwarnings("ignore:The class `CodeInterpreterMiddleware` is in beta")
@@ -445,6 +450,7 @@ async def test_cancel_after_child_checkpoint_then_resume() -> None:
         await invocation
     assert await _total(agent) == pytest.approx(1.0)
     await _assert_accounting(agent, 1)
+    await _settle_cancelled_eval(agent)
     _fresh_runtime()
     release.set()
     resumed = _parent(
@@ -480,6 +486,97 @@ async def test_failed_child_preserves_checkpointed_cost() -> None:
     await _assert_accounting(agent, 3)
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        asyncio.CancelledError(),
+        GraphInterrupt(()),
+        NodeCancelledError("cancelled"),
+        ParentCommand(Command(goto="parent")),
+    ],
+)
+async def test_dispatch_preserves_control_flow(error: BaseException) -> None:
+    @tool
+    async def task(description: str, subagent_type: str) -> str:  # noqa: ARG001  # Task tool signature.
+        """Raise a graph control-flow signal."""
+        await asyncio.sleep(0)
+        raise error
+
+    runtime = ToolRuntime(
+        state={},
+        context=None,
+        config={},
+        stream_writer=lambda _value: None,
+        tool_call_id="task",
+        store=None,
+    )
+    assert isinstance(task, StructuredTool)
+    proxy = _cost_task(task, runtime, "owner", set())
+    assert proxy.coroutine is not None
+    with pytest.raises(type(error)) as caught:
+        await proxy.coroutine("work", "child", runtime)
+    assert caught.value is error
+
+
+@pytest.mark.parametrize("durability", ["async", "exit"])
+async def test_failed_dispatch_preserves_successful_siblings(durability) -> None:
+    started = {name: asyncio.Event() for name in ("one", "two")}
+    release = asyncio.Event()
+    completed = []
+    cancelled = []
+
+    @tool
+    async def wait(name: str) -> str:
+        """Finish after the failed child has been dispatched."""
+        started[name].set()
+        try:
+            await release.wait()
+            await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            cancelled.append(name)
+            raise
+        completed.append(name)
+        return name
+
+    @tool
+    async def fail() -> str:
+        """Fail while both healthy siblings are still running."""
+        await asyncio.gather(*(event.wait() for event in started.values()))
+        release.set()
+        msg = "child unavailable"
+        raise RuntimeError(msg)
+
+    children = {
+        name: _child(
+            _tool_call("wait", {"name": name}),
+            AIMessage(content="RESULT_" + name, id=name, usage_metadata=_usage()),
+            tools=[wait],
+        )
+        for name in started
+    }
+    children["fail"] = _child(_tool_call("fail"), tools=[fail])
+    agent = _parent(
+        "const results = await Promise.all(["
+        'task({description:"one",subagentType:"one"}),'
+        'task({description:"fail",subagentType:"fail"}),'
+        'task({description:"two",subagentType:"two"})]);'
+        "JSON.stringify([results[0], JSON.parse(results[1]), results[2]])",
+        children,
+        InMemorySaver(),
+    )
+    result = await agent.ainvoke(
+        {"messages": [HumanMessage("go")]}, _CONFIG, durability=durability
+    )
+    output = result["messages"][-2].content
+    assert "RESULT_one" in output
+    assert "RESULT_two" in output
+    assert "Subagent 'fail' failed: RuntimeError: child unavailable" in output
+    assert '"failed":true' in output
+    assert sorted(completed) == ["one", "two"]
+    assert cancelled == []
+    await _assert_accounting(agent, 7)
+
+
 @pytest.mark.parametrize("durability", ["async", "exit"])
 @pytest.mark.parametrize("nested", [False, True])
 async def test_dispatch_failure_cancels_sibling_without_losing_durable_cost(
@@ -503,7 +600,8 @@ async def test_dispatch_failure_cancels_sibling_without_losing_durable_cost(
 
     code = (
         'await Promise.all([task({description:"wait",subagentType:"wait"}),'
-        'task({description:"fail",subagentType:"fail"})])'
+        'task({description:"fail",subagentType:"fail"}).then(result => {'
+        "throw new Error(JSON.parse(result).error);})])"
     )
     waiter = _child(_tool_call("wait"), tools=[wait])
     if nested:
@@ -559,7 +657,6 @@ async def test_structured_result_and_unrelated_state_are_isolated() -> None:
             return {"unrelated": "child-only"}
 
     interpreter = CostAwareCodeInterpreterMiddleware(tool_name="js_eval", mode="call")
-    _INTERPRETERS.append(interpreter)
     child_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         CostTrackingMiddleware(nested=True),
         ChildState(),

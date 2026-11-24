@@ -18,10 +18,14 @@ from typing import TYPE_CHECKING, cast
 
 from langchain_core.tools import tool
 
-from deepagents_talon.mcp_oauth import MCPOAuthConfigError, parse_oauth_config
+from deepagents_talon.mcp_oauth import (
+    MCPOAuthConfigError,
+    parse_oauth_config,
+    require_secret_reference,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Callable, Generator, Mapping
 
     from langchain_core.tools import BaseTool
 
@@ -47,6 +51,8 @@ _FIELDS = frozenset(
         "oauth",
         "allowedTools",
         "disabledTools",
+        "skillOnly",
+        "enabled",
     }
 )
 _ENUMS = {
@@ -184,6 +190,8 @@ class MCPConfigStore:
                     Omitted fields are removed, except settings Talon does not
                     manage, which are preserved and never shown. Use ${ENV_VAR}
                     references for credentials; never include literal secrets.
+                    Set enabled=false to unload its tools without deleting settings;
+                    set enabled=true to restore them (enabled defaults to true).
                 expected_revision: Revision returned by get_mcp_configuration.
 
             Changes can execute commands or send credentials to configured URLs.
@@ -267,7 +275,7 @@ class MCPConfigStore:
 
 
 @contextmanager
-def locked_path(path: Path, *, timeout: float | None = None) -> Iterator[None]:
+def locked_path(path: Path, *, timeout: float | None = None) -> Generator[None]:
     """Hold an exclusive lock for `path` while the block runs.
 
     The lock is a sidecar `.lock` file beside `path`, so readers that only open
@@ -447,6 +455,7 @@ def _validate_server(server: dict[str, object]) -> None:
         if server.get("auth") != "oauth" or _derived_transport(server) == "stdio":
             msg = "MCP oauth settings require a remote server with auth set to oauth."
             raise MCPOAuthConfigError(msg)
+        require_secret_reference(server["oauth"])
         parse_oauth_config(server["oauth"])
     transport = _derived_transport(server)
     for field, choices in _ENUMS.items():
@@ -461,6 +470,10 @@ def _validate_server(server: dict[str, object]) -> None:
 
 
 def _validate_fields(server: dict[str, object]) -> None:
+    for field in ("skillOnly", "enabled"):
+        if field in server and not isinstance(server[field], bool):
+            msg = f"MCP {field} must be a boolean"
+            raise TypeError(msg)
     for field in ("command", "url", "auth"):
         if field in server and not isinstance(server[field], str):
             msg = "MCP settings must contain strings"

@@ -11,7 +11,6 @@ from uuid import (
     UUID,  # ruff:ignore[typing-only-standard-library-import] - Pydantic resolves model annotations at runtime.
 )
 
-from langchain_core.messages import ToolMessage
 from pydantic import BaseModel, ConfigDict, Field
 
 from deepagents_code.approval_mode import (  # ruff:ignore[typing-only-first-party-import] - Pydantic runtime annotation.
@@ -24,6 +23,7 @@ from deepagents_code.json_types import (
 )
 
 if TYPE_CHECKING:
+    from langchain_core.messages import ToolMessage
     from langgraph.types import Command
 
 
@@ -102,6 +102,11 @@ class ToolCallData(_DomainModel):
     name: str
     args: JsonObject
     mcp_server: str | None = None
+    mcp_tool: str | None = None
+    """Original server-side MCP tool name.
+
+    `name` is the model-facing name, which may be sanitized or hash-shortened.
+    """
 
 
 class AgentIdentity(_DomainModel):
@@ -242,6 +247,11 @@ class PostToolUseEvent(_DomainModel):
         Returns:
             A `PostToolUseEvent` with a JSON-projected `result`.
         """
+        # Deferred: the client imports this module to read hook config before
+        # first paint, and only the server (which already loaded LangChain)
+        # builds tool-result events.
+        from langchain_core.messages import ToolMessage
+
         if isinstance(result, ToolMessage):
             value: object = result.model_dump(mode="json")
         else:
@@ -400,6 +410,7 @@ class PreToolUseDecision(BaseHookDecision):
 
     event: Literal[HookEvent.PRE_TOOL_USE]
     permission: PermissionEffect
+    updated_command: str | None = None
     context: list[str] = Field(default_factory=list)
 
 

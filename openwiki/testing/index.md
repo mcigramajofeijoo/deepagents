@@ -1,3 +1,3 @@
 # Files
 
-- [Testing Guide](testing-guide.md) - Focused, deterministic regression routing for Deep Agents state and store backend compatibility, dcode behavior, and Talon runtime refresh, progress delivery, verbosity, and approval concurrency. Use package-local targets and assert observable contracts at the relevant boundary.
+- [Testing Guide](testing-guide.md) - Focused, hermetic regression routes for dcode configuration and local context, Talon subagents and MCP/OAuth, release-note automation, and the Harbor LangGraph adapter. Use package-owned Make targets and assert observable behavior while treating warnings as failures.

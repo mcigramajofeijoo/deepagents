@@ -11,7 +11,7 @@ import inspect
 import logging
 from dataclasses import dataclass
 from functools import lru_cache, partial
-from typing import Final, Literal, NotRequired
+from typing import Final, Literal, NotRequired, Protocol, runtime_checkable
 
 from typing_extensions import TypedDict
 
@@ -806,6 +806,18 @@ class BackendProtocol(abc.ABC):  # noqa: B024
         return await asyncio.to_thread(self.download_files, paths)
 
 
+@runtime_checkable
+class BackendConsumer(Protocol):
+    """Middleware that works on the agent's backend.
+
+    `create_deep_agent` calls `bind_backend` on each middleware it is given that
+    has this method, with the backend its file tools use.
+    """
+
+    def bind_backend(self, backend: BackendProtocol) -> None:
+        """Receive the agent's backend."""
+
+
 @dataclass
 class ExecuteResponse:
     """Result of code execution.
@@ -845,6 +857,12 @@ class ExecuteArtifact(TypedDict):
 
     Omitted when the exit code could not be determined.
     """
+
+    truncated: NotRequired[bool]
+    """Whether backend limits discarded output, rather than merely offloading it."""
+
+    output_file: NotRequired[str]
+    """Backend path to captured output, which may be incomplete when truncated."""
 
 
 @dataclass(frozen=True, slots=True)

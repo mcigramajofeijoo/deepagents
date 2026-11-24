@@ -151,6 +151,13 @@ def _validate_category_map_keys(category_map: dict[str, dict]) -> None:
 _validate_category_map_keys(CATEGORY_MAP)
 ALL_GRAPHS = _load_registry_graphs(_LANGGRAPH_JSON)
 KNOWN_AGENT_IMPLS, CODE_AGENT_IMPLS = derive_impl_sets(ALL_GRAPHS, CATEGORY_MAP)
+HARBOR_AGENT_PROVIDERS = {
+    "codex": {"openai"},
+    "claude-code": {"anthropic"},
+    "pi": {"openai", "anthropic"},
+}
+CODE_AGENT_IMPLS |= HARBOR_AGENT_PROVIDERS.keys()
+KNOWN_AGENT_IMPLS |= HARBOR_AGENT_PROVIDERS.keys()
 
 # A CATEGORY_MAP agent_impl that is not a registered graph would route a category
 # to a nonexistent harness. Validate at import; raise (not assert) so `python -O`
@@ -480,6 +487,9 @@ def build_flat_matrix(
                 groups.append((cat, impl, tasks))
         else:
             groups.append((cat, cm["agent_impl"], tasks))
+            for impl in code_impls:
+                if impl in HARBOR_AGENT_PROVIDERS:
+                    groups.append((cat, impl, tasks))
 
     counts = {(cat, impl): len(tasks) for cat, impl, tasks in groups}
     total = sum(counts.values())
@@ -589,6 +599,16 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         raise SystemExit(str(exc))
 
+    native_impls = set(code_impls) & HARBOR_AGENT_PROVIDERS.keys()
+    if native_impls and branches != ["current"]:
+        raise SystemExit("Native Harbor agents require no branches_to_compare")
+    for model in model_specs:
+        for impl in native_impls:
+            if provider_of(model) not in HARBOR_AGENT_PROVIDERS[impl]:
+                raise SystemExit(f"{impl} requires an {sorted(HARBOR_AGENT_PROVIDERS[impl])} model, got {model}")
+    if "claude-code" in native_impls and os.environ.get("UNIFIED_REASONING_EFFORT") == "minimal":
+        raise SystemExit("claude-code does not support reasoning_effort=minimal")
+
     # Resolve the per-category task lists.
     if profile == "lite":
         tasks_by_cat = {c: list(lite_tasks.LITE_TASKS.get(c, [])) for c in categories}
@@ -673,6 +693,7 @@ def main(argv: list[str] | None = None) -> int:
     # queried name matches the logged one. run id/attempt are the workflow run's.
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    reasoning_effort = os.environ.get("UNIFIED_REASONING_EFFORT", "")
     experiments: dict[str, int | None] = {}
     for key in expected_keys:
         name = experiment_name(
@@ -682,6 +703,7 @@ def main(argv: list[str] | None = None) -> int:
             category=key.category,
             run_id=run_id,
             run_attempt=run_attempt,
+            reasoning_effort=reasoning_effort,
         )
         n_tasks = len(tasks_by_cat.get(key.category, []))
         experiments[name] = n_tasks * rollouts if n_tasks else None

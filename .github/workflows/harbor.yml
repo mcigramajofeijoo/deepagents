@@ -9,7 +9,8 @@
 #   Ollama Cloud inference; it is not read from secrets.
 #
 # Required secrets (vary by sandbox + model provider):
-#   LANGSMITH_API_KEY          — experiment tracking + LangSmith sandbox (always required)
+#   LANGSMITH_API_KEY          — experiment tracking (always required)
+#   LANGSMITH_SANDBOX_API_KEY  — LangSmith sandboxes, which run on AWS US
 #   ANTHROPIC_API_KEY          — needed for Anthropic models
 #   OPENAI_API_KEY             — needed for OpenAI models and tau3 verifier/user simulator
 #   GOOGLE_API_KEY             — needed for Google models
@@ -41,6 +42,11 @@ on:
           - "harbor-index/harbor-index"
       dataset_override:
         description: "Override: arbitrary Harbor dataset ref (e.g. 'owner/dataset'). Takes priority over the dataset dropdown when non-empty."
+        required: false
+        default: ""
+        type: string
+      langsmith_dataset:
+        description: "Optional LangSmith dataset name to log experiments under (created if missing). Empty derives it from the Harbor dataset ref."
         required: false
         default: ""
         type: string
@@ -112,7 +118,7 @@ on:
           - docker
           - langsmith
       agent_impl:
-        description: "Deep Agents implementation run through Harbor's LangGraph agent."
+        description: "Harness: a Deep Agents graph run through Harbor's LangGraph agent (dcode, bare, tau3), or Harbor's built-in codex, claude-code, or pi."
         required: true
         default: "dcode"
         type: choice
@@ -120,6 +126,9 @@ on:
           - dcode
           - bare
           - tau3
+          - codex
+          - claude-code
+          - pi
       n_tasks:
         description: "Maximum number of tasks to run (0 = all)."
         required: true
@@ -136,7 +145,7 @@ on:
         default: "3"
         type: string
       n_retries:
-        description: "Max retries per trial on transient failure (e.g. a LangSmith snapshot build error). 0 = no retries."
+        description: "Max retries per errored trial. Uses Harbor's default retry policy: setup, provider and network errors are retried; agent timeouts and budget overruns, refusals, config errors and verifier failures are not. 0 = no retries."
         required: true
         default: "0"
         type: string
@@ -150,6 +159,18 @@ on:
         required: false
         default: "1.0"
         type: string
+      reasoning_effort:
+        description: "Reasoning effort passed to the chat model constructor as `reasoning_effort`. Empty = provider default."
+        required: false
+        type: choice
+        default: ""
+        options:
+          - ""
+          - minimal
+          - low
+          - medium
+          - high
+          - xhigh
       env_build_timeout_multiplier:
         description: "Multiplier for each task's environment build timeout (harbor's client-side wait). Note: does not extend the LangSmith build service's own limit."
         required: false
@@ -169,6 +190,11 @@ on:
         description: "Force a rebuild of each task's environment image/snapshot, bypassing any cached or stale record. Required the first time a local dataset runs on the LangSmith sandbox (the snapshot must be built), and to recover from a broken snapshot record."
         required: false
         default: false
+        type: boolean
+      prewarm_snapshots:
+        description: "LangSmith sandbox only: build each selected task's snapshots once before the shards start, so parallel trials reuse them instead of building the same snapshot at once. Needs a Harbor build with `prepare_snapshot` (via harbor_package_override); otherwise the step skips."
+        required: false
+        default: true
         type: boolean
       n_shards:
         description: "Split the dataset's tasks across N shard jobs per model (each on its own runner at the per-job concurrency). Composes with include_tasks/n_tasks: those select the task set first, then it's partitioned across shards (total tasks run is unchanged). May be set as high as the task count (one task per shard) for dynamic dispatch — shards drain through a derived pool (shard_parallel), not all at once. Capped at 200 (shard_matrix.MAX_SHARDS); the pool is bounded so shard_parallel * concurrency <= 40 concurrent sandboxes."
@@ -225,6 +251,7 @@ jobs:
           INCLUDE_TASKS: ${{ inputs.include_tasks }}
           ROLLOUTS_PER_TASK: ${{ inputs.rollouts_per_task }}
           CONCURRENCY: ${{ inputs.concurrency }}
+          REASONING_EFFORT: ${{ inputs.reasoning_effort }}
         run: |
           echo "### 📊 Evals - Harbor dispatch inputs" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -250,6 +277,7 @@ jobs:
           fi
           echo "| \`rollouts_per_task\` | \`${ROLLOUTS_PER_TASK}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`concurrency\` | \`${CONCURRENCY}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`reasoning_effort\` | \`${REASONING_EFFORT:-(provider default)}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
       - name: "📋 Checkout Code"
@@ -321,7 +349,7 @@ jobs:
       dataset_path: ${{ inputs.dataset_path }}
       agent_impl: ${{ inputs.agent_impl }}
       # Empty: the leaf derives the dataset name itself.
-      langsmith_dataset: ""
+      langsmith_dataset: ${{ inputs.langsmith_dataset }}
       rollouts: ${{ inputs.rollouts_per_task }}
       n_shards: ${{ inputs.n_shards }}
       # Derived pool the shards drain through (dynamic dispatch), not n_shards
@@ -333,9 +361,11 @@ jobs:
       n_tasks: ${{ inputs.n_tasks }}
       include_tasks: ${{ inputs.include_tasks }}
       agent_timeout_multiplier: ${{ inputs.agent_timeout_multiplier }}
+      reasoning_effort: ${{ inputs.reasoning_effort }}
       env_build_timeout_multiplier: ${{ inputs.env_build_timeout_multiplier }}
       override_storage_mb: ${{ inputs.override_storage_mb }}
       disable_verification: ${{ inputs.disable_verification }}
       force_build: ${{ inputs.force_build }}
+      prewarm_snapshots: ${{ inputs.prewarm_snapshots }}
       harbor_package_override: ${{ inputs.harbor_package_override }}
       judge_models: ${{ inputs.judge_models }}

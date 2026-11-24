@@ -13,7 +13,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from langchain.agents.middleware import ModelFallbackMiddleware, TodoListMiddleware
-from langchain.agents.middleware.types import AgentMiddleware, PrivateStateAttr
+from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, PrivateStateAttr
+from langchain_anthropic import ChatAnthropic
+from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.tools import BaseTool, StructuredTool
@@ -21,7 +23,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from deepagents._api.deprecation import LangChainDeprecationWarning
 from deepagents._tools import _apply_tool_description_overrides, _tool_name
 from deepagents._version import __version__, _lc_version, _with_editable_local_version
-from deepagents.backends import StateBackend
+from deepagents.backends import BackendConsumer, StateBackend
 from deepagents.graph import (
     _REQUIRED_MIDDLEWARE_CLASSES,
     _REQUIRED_MIDDLEWARE_NAMES,
@@ -33,6 +35,8 @@ from deepagents.graph import (
 from deepagents.middleware._prompt_caching import (
     _create_bedrock_prompt_caching_middleware,
     _create_fireworks_prompt_caching_middleware,
+    _prompt_caching_middleware_class,
+    append_prompt_caching_middleware,
 )
 from deepagents.middleware._tool_exclusion import _ToolExclusionMiddleware
 from deepagents.middleware.async_subagents import AsyncSubAgentMiddleware
@@ -49,9 +53,9 @@ from deepagents.profiles.harness.harness_profiles import (
 from tests.unit_tests.chat_model import GenericFakeChatModel
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
-    from langchain.agents.middleware.types import ModelRequest
+    from deepagents.backends.protocol import BackendProtocol
 
 
 def _make_model(attrs: dict[str, Any]) -> MagicMock:
@@ -469,6 +473,36 @@ class TestGeneralPurposeSubagentProfileWiring:
 class TestPromptCachingWiring:
     """Tests for provider-specific prompt caching middleware wiring."""
 
+    @pytest.fixture(autouse=True)
+    def clear_provider_cache(self) -> Iterator[None]:
+        _prompt_caching_middleware_class.cache_clear()
+        yield
+        _prompt_caching_middleware_class.cache_clear()
+
+    @pytest.mark.parametrize("factory", [_create_bedrock_prompt_caching_middleware, _create_fireworks_prompt_caching_middleware])
+    def test_unavailable_provider_is_cached(self, factory: Callable[[], AgentMiddleware | None]) -> None:
+        package = "langchain_aws" if factory is _create_bedrock_prompt_caching_middleware else "langchain_fireworks"
+        with patch("deepagents.middleware._prompt_caching.import_module", side_effect=ModuleNotFoundError(name=package)) as load:
+            assert factory() is None
+            assert factory() is None
+        load.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("factory", "name"),
+        [
+            (_create_bedrock_prompt_caching_middleware, "BedrockPromptCachingMiddleware"),
+            (_create_fireworks_prompt_caching_middleware, "FireworksPromptCachingMiddleware"),
+        ],
+    )
+    def test_cached_provider_class_creates_fresh_instances(self, factory: Callable[[], AgentMiddleware | None], name: str) -> None:
+        middleware_cls = MagicMock(side_effect=[MagicMock(), MagicMock()])
+        module = MagicMock(**{name: middleware_cls})
+        with patch("deepagents.middleware._prompt_caching.import_module", return_value=module) as load:
+            first, second = factory(), factory()
+        assert first is not second
+        load.assert_called_once()
+        assert middleware_cls.call_count == 2
+
     def test_main_and_general_purpose_agents_get_bedrock_prompt_caching(self) -> None:
         model = GenericFakeChatModel(messages=iter([AIMessage(content="ok")]))
         gp_cache = MagicMock()
@@ -637,6 +671,61 @@ class TestPromptCachingWiring:
 
         assert result is middleware
         middleware_cls.assert_called_once_with(unsupported_model_behavior="ignore")
+
+    def test_importing_deepagents_does_not_load_langchain_anthropic(self) -> None:
+        """`import deepagents` stays free of the `anthropic` SDK until a model needs it."""
+        code = "import sys, deepagents; print(sorted(m for m in ('anthropic', 'langchain_anthropic') if m in sys.modules))"
+        result = subprocess.run(  # noqa: S603  # fixed args, no user input
+            [sys.executable, "-W", "ignore", "-c", code],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout.strip() == "[]"
+
+    def test_anthropic_prompt_caching_applies_only_to_anthropic_models(self) -> None:
+        """The default caching middleware tags Anthropic requests and passes others through."""
+        stack: list[AgentMiddleware[Any, Any, Any]] = []
+        with (
+            patch("deepagents.middleware._prompt_caching._create_bedrock_prompt_caching_middleware", return_value=None),
+            patch("deepagents.middleware._prompt_caching._create_fireworks_prompt_caching_middleware", return_value=None),
+        ):
+            append_prompt_caching_middleware(stack)
+        (caching,) = stack
+        seen: list[ModelRequest] = []
+
+        def handler(request: ModelRequest) -> AIMessage:
+            seen.append(request)
+            return AIMessage(content="ok")
+
+        other = ModelRequest(model=GenericFakeChatModel(messages=iter([])), messages=[], state={"messages": []})
+        anthropic = other.override(model=ChatAnthropic(model_name="claude-sonnet-4-6", anthropic_api_key="fake"))  # type: ignore[call-arg]
+        caching.wrap_model_call(other, handler)
+        caching.wrap_model_call(anthropic, handler)
+
+        assert seen[0] is other
+        assert seen[1].model_settings["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
+
+    def test_class_form_exclusion_drops_anthropic_prompt_caching(self) -> None:
+        """Excluding `AnthropicPromptCachingMiddleware` by class drops the default caching middleware."""
+        original = dict(_HARNESS_PROFILES)
+        try:
+            register_harness_profile(
+                "nocacheprov",
+                HarnessProfile(excluded_middleware=frozenset({AnthropicPromptCachingMiddleware})),
+            )
+            fake_agent = MagicMock()
+            with (
+                patch("deepagents.graph.resolve_model", return_value=GenericFakeChatModel(messages=iter([]))),
+                patch("deepagents.graph.create_agent", return_value=fake_agent) as mock_create,
+            ):
+                create_deep_agent(model="nocacheprov:some-model")
+
+            names = [m.name for m in mock_create.call_args.kwargs["middleware"]]
+            assert "AnthropicPromptCachingMiddleware" not in names
+        finally:
+            _HARNESS_PROFILES.clear()
+            _HARNESS_PROFILES.update(original)
 
 
 class TestSystemPromptAssembly:
@@ -3229,3 +3318,53 @@ class TestSkillsMiddlewarePlacement:
             "ModelFallbackMiddleware",
             "AnthropicPromptCachingMiddleware",
         ]
+
+
+class _WantsBackend(AgentMiddleware[Any, Any, Any]):
+    def __init__(self, name: str = "WantsBackend") -> None:
+        super().__init__()
+        self._name = name
+        self.backends: list[BackendProtocol] = []
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def bind_backend(self, backend: BackendProtocol) -> None:
+        self.backends.append(backend)
+
+
+class TestBackendBinding:
+    """`create_deep_agent` hands its backend to middleware that ask for it."""
+
+    def _build(self, **kwargs: Any) -> tuple[list[AgentMiddleware], dict[str, list[AgentMiddleware]]]:
+        return TestSkillsMiddlewarePlacement()._build(skills=None, **kwargs)
+
+    @staticmethod
+    def _file_backend(stack: list[AgentMiddleware]) -> BackendProtocol:
+        return next(m.backend for m in stack if isinstance(m, FilesystemMiddleware))
+
+    @pytest.mark.parametrize("explicit", [False, True], ids=["default_backend", "explicit_backend"])
+    def test_user_middleware_gets_the_backend_the_file_tools_use(self, *, explicit: bool) -> None:
+        wants = _WantsBackend()
+        kwargs: dict[str, Any] = {"backend": StateBackend()} if explicit else {}
+
+        main, _ = self._build(middleware=[wants], **kwargs)
+
+        assert wants.backends == [self._file_backend(main)]
+
+    def test_declarative_subagent_middleware_gets_the_backend(self) -> None:
+        own = _WantsBackend("OwnBackendMW")
+        worker: SubAgent = {"name": "worker", "description": "d", "middleware": [own]}
+
+        _, subagents = self._build(subagents=[worker])
+
+        assert own.backends == [self._file_backend(subagents["worker"])]
+
+    def test_middleware_without_the_method_is_left_alone(self) -> None:
+        plain = _named_mw("PlainMW")
+
+        main, _ = self._build(middleware=[plain])
+
+        assert plain in main
+        assert not isinstance(plain, BackendConsumer)

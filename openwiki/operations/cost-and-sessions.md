@@ -1,158 +1,98 @@
 ---
 type: operations reference
-title: dcode Sessions, Resume, and Cost Operations
-description: Operate dcode's persistent SQLite threads, interactive and headless resume safeguards, checkpoint migration, and estimated-cost accounting. Covers ownership fencing, selector behavior, pricing overrides, diagnostics, and failure handling.
-tags: [dcode, sessions, resume, cost-tracking, sqlite, pricing]
+title: dcode Costs, Traces, and Session Operations
+description: How dcode persists best-effort model-cost estimates and transports JavaScript subagent receipts into the owning thread checkpoint. Covers receipt ownership, cancellation and resume safety, and focused regression tests.
+tags: [dcode, sessions, cost-tracking, javascript, checkpoints]
 verified:
   - by: openwiki/0.4.2
-    at: 2026-10-21T08:05:42.350Z
+    at: 2026-11-20T08:04:05.944Z
 sources:
-  - id: openwiki-source-b044ed8f5923ae8730e26602
-    resource: repo://libs/code/deepagents_code/client/headless_resume.py
-  - id: openwiki-source-ecf20e7a2684ba0d2ae7d701
-    resource: repo://libs/code/deepagents_code/client/non_interactive.py
+  - id: openwiki-source-d4716b8ae162796c2c7ad991
+    resource: repo://libs/code/deepagents_code/_js_cost.py
+  - id: openwiki-source-05106e66a949150d557266a2
+    resource: repo://libs/code/deepagents_code/agent.py
   - id: openwiki-source-f2ac9d5fb6c7c6a21f241281
     resource: repo://libs/code/deepagents_code/cost_tracking.py
-  - id: openwiki-source-2e03fee957625ca21a1c21af
-    resource: repo://libs/code/deepagents_code/main.py
-  - id: openwiki-source-0ebb796aeb31d55295b1408b
-    resource: repo://libs/code/deepagents_code/resume_policy.py
-  - id: openwiki-source-620b4c9d0fcbd4c7e6aa0120
-    resource: repo://libs/code/deepagents_code/resume_state.py
-  - id: openwiki-source-0f8622164498a685abc913d5
-    resource: repo://libs/code/deepagents_code/sessions.py
-  - id: openwiki-source-0fb3334c2f2fc8575c82dca6
-    resource: repo://libs/code/deepagents_code/state_migration.py
-  - id: openwiki-source-91c9283d1547adfffd627c43
-    resource: repo://libs/code/deepagents_code/thread_ownership.py
-  - id: openwiki-source-36838b2ce6fb7679d6e662cb
-    resource: repo://libs/code/tests/integration_tests/test_headless_resume.py
-  - id: openwiki-source-a1c23c211325ea69f28f8ca0
-    resource: repo://libs/code/tests/unit_tests/test_cost_tracking.py
-  - id: openwiki-source-cd2a5280cf3ca3ab491d7a8e
-    resource: repo://libs/code/tests/unit_tests/test_sessions.py
-generated: { by: "openwiki/0.4.2", at: "2026-10-21T08:05:42.350Z" }
+  - id: openwiki-source-84638d6cd0c222d6264dbef8
+    resource: repo://libs/code/tests/unit_tests/test_js_cost_sync.py
+  - id: openwiki-source-8574be7f7f29e3e1dd328837
+    resource: repo://libs/code/tests/unit_tests/test_js_cost_tracking.py
+generated: { by: "openwiki/0.4.2", at: "2026-11-20T08:04:05.944Z" }
 ---
 
-# dcode Sessions, Resume, and Cost Operations
+# dcode Costs, Traces, and Session Operations
 
-## Operating model
+## Accounting ownership
 
-A dcode thread is durable LangGraph checkpoint state in the sessions SQLite database, not a transactional backup or a provider billing record. Keep independent backups when recovery guarantees matter. Model-cost dollars are **estimates**, not invoices, budgets, reservations, or spend limits; reconcile actual charges with the provider.
+Cost figures are **best-effort telemetry**, not invoices, reservations, or a budget-control mechanism. Unsupported models or incomplete usage must not fail a model turn; the structured breakdown records request counts and completeness so partial pricing is observable. Reconcile actual provider billing separately.
 
-The graph owns its lifetime cost total in private additive checkpoint channels, `_session_cost_usd` and `_session_cost_breakdown`. `CostTrackingMiddleware` drains completed model records after model work and again after agent completion, so post-final-step work is included. Accounting is deliberately best effort: a tracking failure should not fail a user turn, and drained records are restored where possible. Side questions and generated titles use separate recorders and persist their subtotal in the sessions database because they can finish after the graph has stopped. The client combines graph and side totals only for display.
+The checkpointed graph, not the UI, owns a thread's total. `CostTrackingMiddleware` writes additive private `_session_cost_usd` and `_session_cost_breakdown` updates. It drains completed model-call records after model work and again after the agent, which captures late work where possible. A failed tracking attempt does not fail the user turn: drained records are restored when a recorder is available so a later drain can price them.
 
-```mermaid
-flowchart TD
-    Call["Completed model request"] --> Recorder["Process-wide recorder"]
-    Recorder --> Middleware["Cost tracking middleware"]
-    Middleware --> Graph["Additive checkpoint cost channels"]
-    Side["Side question or title generation"] --> SideStore["Sessions SQLite subtotal"]
-    Graph --> Event["Absolute session cost event"]
-    Event --> Display["Client cost presentation"]
-    SideStore --> Display
-```
+The client is only a reader of the absolute `session_cost` stream event. That event carries the merged checkpoint estimate for its thread, allowing a display that missed an earlier event to converge on the next one. Do not derive or persist a thread total from a UI widget or process-local session statistics.
 
-*Graph-owned lifetime cost and independently persisted side-operation cost converge only in the presentation layer.*
+### Nested graph and operation settlement
 
-`SessionStats` is separate client-process telemetry, not the durable total. It records provider/model and usage-kind estimates and retracts/replaces an earlier streamed contribution when later chunks provide cumulative usage or a better model identity. This prevents one API request from being counted more than once. The client accepts a nested `model_usage` event only after validating its version, identifiers, usage fields, and active thread.
+A nested `CostTrackingMiddleware(nested=True)` starts a local cost channel, then emits its completed local total as an owner-scoped `_session_cost_transfers` entry. The parent claims only transfers addressed to its checkpoint scope, merges the detail, and removes claimed entries. This keeps child-private state isolated while preserving completed work that precedes an interrupt.
 
-## Thread ownership and lifecycle
+Server-side model work that is outside the graph loop uses `prepare_operation_cost()`. Its returned `PreparedOperationCost` has already destructively claimed recorder records. Persist its additive `update` with the operation state and then commit it; rollback only when the write definitely did not land. Restoring after a landed write double charges on a later drain, while abandoning a prepared value permanently loses its claimed spend—even if the dollar delta is zero.
 
-A thread is exclusive while writable. `thread_ownership` uses operating-system-backed file locks plus a per-thread random token. The owned SQLite saver serializes writes and validates both the live reservation and token immediately at the write boundary. A released lease, token rotation, or a newly acquired owner therefore fences out stale writers rather than merely relying on the client to stop.
+## JavaScript subagent receipt transport
+
+`create_cli_agent()` installs `CostAwareCodeInterpreterMiddleware` as `js_eval` when `enable_interpreter=True`; a remote sandbox is rejected for that option. The wrapper extends the QuickJS interpreter strictly for accounting transport. Its synchronous `wrap_tool_call()` delegates unchanged, so receipt transport is an asynchronous path only.
+
+On an asynchronous `js_eval` call, the middleware derives an accounting owner from the current checkpoint namespace and a digest of the tool-call ID (or inherits the owner for a nested evaluation). It proxies only the structured `task` tool. Each proxy creates a child namespace from a digest of the task description, subagent type, optional response schema, and an occurrence number. Thus identical parallel dispatches remain distinct, while checkpoint names do not expose prompt text. It also carries the owner token when present, requests synchronous child durability, and resets the child subgraph counter.
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant Lease as Thread lease
-    participant Saver as Owned SQLite saver
-    participant Store as Sessions database
-    Client->>Lease: acquire reservation
-    Lease-->>Client: fencing token
-    Client->>Saver: checkpoint mutation with token
-    Saver->>Lease: validate reservation and token
-    Saver->>Store: write checkpoint or writes
-    Client->>Lease: release or rotate lease
+    participant Parent as Parent graph
+    participant JS as JS cost middleware
+    participant Child as Task subagent
+    participant Saver as Checkpoint saver
+    Parent->>JS: async js_eval
+    JS->>Child: task in isolated namespace
+    Child->>Saver: persist local receipt
+    Child-->>JS: result or bounded failure value
+    JS->>Saver: read latest receipts for owner
+    JS-->>Parent: owner-scoped cost transfer
+    Parent->>Parent: merge checkpoint total
 ```
 
-*The saver enforces ownership when committing, which prevents an old session from writing after ownership changes.*
+*The child receipt becomes durable before the outer evaluation transfers it to the parent checkpoint.*
 
-Deletion follows the same rule: it first acquires the reservation and rejects a thread open elsewhere. It removes checkpoint and write rows, durable names, cached message-count rows, and side-question cost, then best-effort removes offloaded history. The Boolean result says whether checkpoint rows were deleted; archive-cleanup errors are logged but do not alter that result.
+### Receipt lifecycle and invariants
 
-### Discovery, names, and inspection
+When child cost middleware has an accounting owner, it calls `record_cost_receipt()` before returning its graph update. The function is a no-op without both an owner and a checkpoint saver. Otherwise it writes the node-local delta and optional breakdown to an owner-tagged receipt checkpoint, forwarding the thread ownership token. A receipt namespace is first-write-wins: replay cannot replace a previously persisted receipt.
 
-`list_threads()` creates a covering metadata index before grouping checkpoint metadata, and loads names separately. It does not deserialize checkpoint blobs merely to draw a listing. Message counts and initial prompts are checkpoint-derived, loaded only when requested, and cached by latest checkpoint identity; a changed checkpoint invalidates the cached derived value. `/threads` can first paint cached rows, while startup and post-turn background work prewarms only the detail columns currently visible.
-
-The interactive selector scopes to the current working directory by default, with an option to widen to all directories. Its cwd database filter is an exact stored-string match; older threads without cwd metadata do not match it. Agent filtering applies to loaded rows, while scope and sort changes refresh the window. If the process cwd cannot be read, the selector degrades to all directories with a warning rather than crashing.
-
-Thread names must be trimmed, printable, single-line strings of 1–50 characters. `rename_thread()` transactionally writes `dcode_thread_names` and mirrors the value to the latest checkpoint metadata for compatibility. Reads prefer that durable table and fall back to root-checkpoint metadata. `only_if_unnamed` lets concurrent automatic naming preserve an already assigned manual name.
-
-For trusted local state, use the bundled inspector rather than hand-decoding checkpoint blobs:
-
-```bash
-python3 "$SKILL_DIR/scripts/inspect_sessions.py" THREAD_ID --mode latest-turn
-python3 "$SKILL_DIR/scripts/inspect_sessions.py" --list 20
-```
-
-The inspector opens a read-only database, requires `checkpoints` and `writes`, and strictly MsgPack-decodes root-namespace state. It reads materialized messages from the latest checkpoint and falls back to ordered-write replay. It warns about decode and reconstruction defects instead of silently claiming complete history. Its default database is `DEEPAGENTS_SESSIONS_DB`, then `$DEEPAGENTS_HOME/.state/sessions.db`, then `~/.deepagents/.state/sessions.db`; do not use it on untrusted databases or expose sensitive recovered content.
-
-### State-directory migration
-
-At startup, legacy internal state directly under `~/.deepagents/` is migrated into `.state/`, including `sessions.db` and its `-wal`/`-shm` sidecars. This migration is best effort and idempotent: an existing destination is never overwritten, and an I/O failure for one entry is logged while startup and other entries continue. If both legacy and destination files exist, inspect and reconcile them manually rather than assuming either copy is authoritative.
-
-## Resume operations
-
-Interactive `/threads` selects a persisted thread; `/threads -r [THREAD_ID]` can target the previous reset thread, the most recent active-agent thread, or an explicit target. A cross-agent target may require an agent switch. A normal switch reserves the destination before releasing prior ownership only after the outcome is known.
-
-Headless continuation is explicit: `dcode -r THREAD_ID -n "..."` never falls back to creating a new thread. First it verifies that the thread exists (and suggests matching ID prefixes), enforces the configured resume-age policy, and checks that the recorded cwd is still available and matches the invocation cwd. A thread with an absent cwd may proceed, but a relative, missing, or mismatched recorded directory is rejected. The run then reserves the thread and rechecks existence while holding the reservation, closing the deletion race.
+The outermost evaluation waits for active dispatch tasks to settle, then lists owner-tagged receipts and accepts the latest checkpoint per receipt namespace. It sums only finite, non-negative numeric amounts. Missing or malformed receipt detail does not fabricate categories: legacy dollar-only detail is retained as historically incomplete, and invalid receipt data makes historical completeness false. The outer evaluation attaches the merged result as `_session_cost_transfers`; nested evaluations, which inherit an owner, do not create a second transfer boundary.
 
 ```mermaid
 flowchart TD
-    Request["dcode -r ID -n task"] --> Find["Find exact thread"]
-    Find --> Age["Apply resume-age policy"]
-    Age --> Cwd["Validate recorded cwd"]
-    Cwd --> Lease["Acquire ownership lease"]
-    Lease --> Exists["Recheck thread exists"]
-    Exists --> State["Read checkpoint state"]
-    State --> Run["Continue existing thread"]
+    Call["async js_eval"] --> Owner["derive or inherit accounting owner"]
+    Owner --> Dispatch["task proxies get isolated namespaces"]
+    Dispatch --> Persist["child writes first receipt"]
+    Persist --> Settle["outer evaluation settles active tasks"]
+    Settle --> Read["latest receipt per namespace"]
+    Read --> Transfer["parent-scoped transfer"]
+    Transfer --> Ledger["parent checkpoint channels"]
 ```
 
-*Headless resume fails closed at every selection and ownership gate; it does not create a replacement thread.*
+*Only the evaluation that created the accounting owner performs receipt aggregation and transfer.*
 
-`threads.resume_after` and `threads.max_resume_age` can both set a cutoff; dcode uses the stricter (latest) cutoff. An invalid or missing `updated_at` also blocks a policy-governed resume, because its freshness cannot be verified. The TUI and headless code share this logic so their safety boundary does not drift.
+This design preserves completed child spend when a sibling interrupts, the evaluation fails, or the caller cancels after a receipt starts writing. On cancellation the asynchronous cost hook shields and joins its thread-backed work, and the interpreter wrapper cancels and gathers tracked dispatch tasks before unwinding. `CancelledError`, `GraphBubbleUp`, and `NodeCancelledError` retain their control-flow meaning; ordinary child exceptions are converted to a bounded retryable error value so sibling results and receipts remain usable. SQLite resume, including a fresh process and an owned saver, reuses persisted receipts rather than charging replayed work again.
 
-By default headless resume adopts the thread agent and the last successfully persisted model; passing `-a` or `-M` opts out of the respective adoption. The model is read from checkpoint-private `_model_spec` and `_model_params` only after the server has registered the thread. If the saved model no longer resolves, dcode warns and continues with the launch model; workspace-policy conflicts remain fatal. Threads remain bound to their originating directory, agent, approval, shell, sandbox, and MCP settings, and server-side workspace compatibility is authoritative.
+## Operating and changing the path
 
-`ResumeState` is the per-checkpoint schema used to rehydrate a session without replaying or retokenizing all history. Successful model turns persist context-token count, effective model specification/parameters, and cache activity facts with their model checkpoint. It also holds private goal/rubric state and pending proposals. Model-turn facts are written in graph middleware so they share the response checkpoint; user-owned accepted goal/rubric state is written through client state updates. Treat unknown persisted goal statuses and malformed model specs as unusable rather than actionable values.
-
-On resume, one-shot `rubric` input from an earlier headless run is cleared, while persisted rubric history remains. An unfinished tool call is abandoned rather than executed merely because the thread was resumed: the conversation is repaired with tool responses before the new user message proceeds.
-
-## Pricing and durable cost settlement
-
-Pricing is best effort. Unsupported models, malformed usage, missing/incompatible `genai-prices`, and unavailable rates produce no estimate rather than interrupting model work. A version-one cost breakdown retains total versus priced request counts, reported token usage, cost/token categories, and completeness flags. An unpriceable request can therefore preserve usage while marking its cost categories incomplete.
-
-The primary catalog begins with package data and can refresh once per process. `DEEPAGENTS_CODE_OFFLINE`, `DEEPAGENTS_CODE_PRICES_AUTO_UPDATE=0`, or `update.prices_auto_update = false` disable updater startup. The updater refuses a fetched snapshot with fewer providers than the bundled catalog, retaining the known catalog rather than replacing it with partial coverage.
-
-When primary lookup misses, dcode reads user `prices.json` followed by bundled `bundled_prices.json`, using the provider-array schema. User provider/model entries override colliding bundled entries; deterministic loading is cached for the process, while transient read errors can be retried. Upstream coverage always wins once it has a price. Invalid override data is warned about and ignored, not allowed to fail a turn.
-
-Direct server-owned calls outside ordinary middleware must use `prepare_operation_cost()`. Preparation destructively claims recorder entries. Commit the returned additive update in the same checkpoint write as operation state and call `commit()`; call `rollback()` only after proving that the write did not land. Restoring after a landed write can double charge; abandoning a prepared value permanently loses its claimed spend.
-
-Side-question and title spend is persisted as a separate sessions-database subtotal, not placed back into graph cost channels. A deletion tombstone prevents a late completion or retry from resurrecting spend after thread deletion. The `/btw` route reads checkpoint state only as a pricing fallback, runs its isolated operation through `answer_with_cost`, and exposes the cumulative side subtotal through the thread-cost endpoint. Title generation sends bounded visible human/assistant text to a tool-free model without callbacks, normalizes its output through the thread-name rules, and waits for model initialization if cancellation arrives.
-
-## Cost diagnostics and offload failure handling
-
-The full-thread breakdown formatter refuses to render unless it receives a version-one breakdown with `historical_complete` true. This prevents legacy dollar-only history or malformed detail from being presented as a complete token table. For valid breakdowns, the table labels missing/invalid values as unavailable, marks incomplete categories partial, identifies directionless cost, and warns when some requests are unpriceable.
-
-The footer and Debug Console share that formatter and modal. The footer opens it from the cost span; the Debug Console hides its control if the provider is empty or errors. `open_cost_breakdown` refuses duplicate modal stacking. The live screen polls every 0.5 seconds, retains its last accepted table after a provider error or empty result, sanitizes control characters before render/copy, and reports clipboard failures without closing.
-
-Server `/offload` serializes work per thread, requires a registered idle thread with no pending graph work, and confirms the checkpoint has not advanced before commit. Its update is allowlisted so it cannot write conversation messages. It settles prepared cost alongside checkpoint state: a failed write rolls back only after readback proves no advance; an advanced or unreadable write keeps records claimed to avoid double charge. Cancellation waits for commit work before it is re-raised. Normal offload commits summary and cost before deferred archive append/link; handoff instead preserves source context and commits source cost channels with a source-owned recovery transcript.
+- Keep receipt persistence before the child graph update returns. Moving it after that boundary reintroduces the interrupt/cancellation window this transport closes.
+- Preserve the owner boundary. Aggregating in nested `js_eval` calls or changing the receipt query from latest-per-namespace risks double charging.
+- Keep the receipt and transfer channels private graph state. A streamed cost event is a display notification, not an authorization to update a thread total.
+- Do not make accounting failure fatal to agent work. Pricing and checkpoint failures have explicit restoration or best-effort semantics.
+- QuickJS itself exposes `task()` inside an approved evaluation. Per-dispatch parent-level HITL approval is not applied there; gate `js_eval`, add subagent approval middleware, or disable interpreter subagents when that approval boundary is required.
 
 ## Focused verification
 
-- Run `tests/integration_tests/test_headless_resume.py` against the real local server for persistence across CLI subprocesses, model adoption/override, cwd and workspace rejection, ownership contention, deletion races, rubric clearing, and abandoned-tool repair.
-- Run `tests/unit_tests/test_headless_resume.py`, `test_non_interactive.py`, and resume-policy cases in `test_app.py` after changing headless selection, cutoff, cwd, or adoption behavior.
-- Run `tests/unit_tests/test_sessions.py` and ownership-transition tests after changing listing, naming, deletion, caching, or checkpoint writes.
-- Run `tests/unit_tests/test_cost_tracking.py` for pricing fallback/updating, recorder ownership, breakdown completeness, middleware charging, and prepared settlement; run `test_cost_breakdown.py` and relevant app/Debug Console tests for diagnostic eligibility and modal failure behavior.
-- Run `tests/unit_tests/skills/test_thread_inspector.py` for read-only inspection and malformed-state reconstruction, and offload API tests after changing checkpoint guards, cost settlement, cancellation, or archive linking.
+- Run `tests/unit_tests/test_js_cost_sync.py` after touching synchronous wrappers. It covers `thread`, `turn`, and `call` interpreter modes; direct `js_eval` and ordinary tools; and `invoke` versus streaming. The assertion is intentional pass-through tool behavior.
+- Run `tests/unit_tests/test_js_cost_tracking.py` after changing receipt identity, dispatch configuration, cancellation, transfer ownership, breakdown compatibility, or persistence. It covers durable child costs across interrupts, normal failures, cancellation during SQLite writes, owned-SQLite fresh-process resume, parallel identical requests, completion-order changes, direct/nested grandchildren, zero-dollar receipts, and legacy dollar-only receipts.
+- Run `tests/unit_tests/test_cost_tracking.py` when changing middleware drains, transfer claiming, pricing completeness, or `PreparedOperationCost` settlement. Use it to verify that tracking remains non-fatal and that record restoration remains safe.
+- Run the relevant interpreter and sandbox integration tests when changing agent construction: `create_cli_agent()` must continue to install the cost-aware middleware locally and reject `enable_interpreter=True` with a remote sandbox.
 
-Related material: [Code agent architecture](../architecture/code-agent.md), [Context management](../concepts/context-management.md), [State persistence](../concepts/state-persistence.md), and [Run a dcode session](../workflows/run-dcode-session.md).
+Related material: [Runtime behavior](../architecture/runtime-behavior.md), [State persistence](../concepts/state-persistence.md), [Sandbox partners](../integrations/sandbox-partners.md), and [Testing guide](../testing/testing-guide.md).
